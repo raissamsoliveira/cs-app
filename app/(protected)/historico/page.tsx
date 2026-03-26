@@ -11,19 +11,22 @@ interface Plano {
 }
 
 /**
- * Histórico — tabela de todos os planos com filtros por tutora e data.
+ * Histórico — tabela de todos os planos com filtros por tutora, data e "Meus planos".
  * searchParams são async no Next.js 16 — sempre usar await.
  */
 export default async function HistoricoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tutora?: string; data?: string }>
+  searchParams: Promise<{ tutora?: string; data?: string; minha?: string }>
 }) {
-  const { tutora: filtraTutora, data: filtraData } = await searchParams
+  const { tutora: filtraTutora, data: filtraData, minha: filtraMinha } = await searchParams
 
   const supabase = await createClient()
 
-  // Busca todas as tutoras distintas para o filtro
+  // Usuário autenticado — necessário para o filtro "Meus planos"
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Busca todas as tutoras distintas para o dropdown de filtro
   const { data: todasTutoras } = await supabase
     .from('planos')
     .select('tutora')
@@ -37,7 +40,10 @@ export default async function HistoricoPage({
     .select('id, created_at, nome_aluno, tutora, conteudo')
     .order('created_at', { ascending: false })
 
-  if (filtraTutora) {
+  if (filtraMinha && user) {
+    // Filtra planos criados pela conta logada (mais confiável que comparar nome da tutora)
+    query = query.eq('criado_por', user.id)
+  } else if (filtraTutora) {
     query = query.eq('tutora', filtraTutora)
   }
   if (filtraData) {
@@ -79,6 +85,7 @@ export default async function HistoricoPage({
         tutoras={tutoras}
         filtraTutora={filtraTutora}
         filtraData={filtraData}
+        filtraMinha={!!filtraMinha}
       />
 
       {/* Tabela */}

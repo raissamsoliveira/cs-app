@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(find C:/Users/raiss/primus-cs-app/primus-cs-app -type f -path */app/\\\\\\(protected\\\\\\)/plano/[id]/*)"
     ]
   }
 }
