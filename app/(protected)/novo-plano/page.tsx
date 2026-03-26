@@ -37,11 +37,10 @@ export default function NovoPlanoPage() {
   const [areaAtuacao, setAreaAtuacao] = useState('')
   const [observacoes, setObservacoes] = useState('')
 
-  // Instagram — imagens e análise gerada
+  // Instagram — imagens enviadas como contexto visual para o plano
   const [imagens, setImagens] = useState<ImagemCarregada[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const inputRefInstagram = useRef<HTMLInputElement>(null)
-  const [analiseInstagram, setAnaliseInstagram] = useState<string | null>(null)
 
   // Estado da geração
   const [gerando, setGerando] = useState(false)
@@ -87,7 +86,6 @@ export default function NovoPlanoPage() {
     setGerando(true)
     setErro(null)
     setPlanoGerado(null)
-    setAnaliseInstagram(null)
     setMensagem(null)
     setNotionUrl(null)
 
@@ -133,9 +131,8 @@ export default function NovoPlanoPage() {
         throw new Error(data.error || `Erro ${res.status}`)
       }
 
-      const { plano, analiseInstagram: analise } = await res.json()
+      const { plano } = await res.json()
       setPlanoGerado(plano)
-      if (analise) setAnaliseInstagram(analise)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao gerar o plano. Tente novamente.')
     } finally {
@@ -160,7 +157,6 @@ export default function NovoPlanoPage() {
       tutora,
       conteudo: planoGerado,
       criado_por: user?.id,
-      ...(analiseInstagram && { analise_instagram: analiseInstagram }),
     })
 
     if (error) {

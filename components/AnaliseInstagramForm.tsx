@@ -8,7 +8,7 @@ import PlanoMarkdown from '@/components/PlanoMarkdown'
 interface ImagemCarregada {
   previewUrl: string  // data URL completo para <img src>
   base64: string      // apenas os dados (após a vírgula)
-  mediaType: string   // ex: image/jpeg
+  mediaType: string   // sempre image/jpeg após compressão
 }
 
 interface Props {
@@ -25,6 +25,9 @@ interface Props {
 }
 
 const MAX_IMAGENS = 6
+const MAX_DIM = 800       // px — dimensão máxima após redimensionamento
+const QUALIDADE = 0.7     // qualidade JPEG
+const MAX_PAYLOAD_MB = 4  // limite total do payload
 
 export default function AnaliseInstagramForm({
   nomeAlunoInicial = '',
@@ -46,10 +49,42 @@ export default function AnaliseInstagramForm({
   const [copiado, setCopiado] = useState(false)
   const [sucesso, setSucesso] = useState(false)
 
-  // Estado do link público
   const [salvandoPublico, setSalvandoPublico] = useState(false)
   const [idPublico, setIdPublico] = useState<string | null>(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
+
+  // ── Compressão via canvas ────────────────────────────────────────────────
+
+  function comprimirImagem(file: File): Promise<ImagemCarregada> {
+    return new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => {
+        let { width, height } = img
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width)
+            width = MAX_DIM
+          } else {
+            width = Math.round((width * MAX_DIM) / height)
+            height = MAX_DIM
+          }
+        }
+        const canvas = document.createElement('canvas')
+        canvas.width = width
+        canvas.height = height
+        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+        const dataUrl = canvas.toDataURL('image/jpeg', QUALIDADE)
+        URL.revokeObjectURL(objectUrl)
+        resolve({
+          previewUrl: dataUrl,
+          base64: dataUrl.split(',')[1],
+          mediaType: 'image/jpeg',
+        })
+      }
+      img.src = objectUrl
+    })
+  }
 
   // ── Carregamento de imagens ──────────────────────────────────────────────
 
@@ -60,24 +95,22 @@ export default function AnaliseInstagramForm({
 
     const novas: ImagemCarregada[] = []
     for (const file of lista.slice(0, vagas)) {
-      const previewUrl = await lerComoDataUrl(file)
-      novas.push({
-        previewUrl,
-        base64: previewUrl.split(',')[1],
-        mediaType: file.type,
-      })
+      novas.push(await comprimirImagem(file))
     }
 
-    setImagens((prev) => [...prev, ...novas])
-    setErro(null)
-  }
+    // Valida tamanho total do payload (base64 → ~0.75x bytes reais)
+    const todasImagens = [...imagens, ...novas]
+    const totalBytes = todasImagens.reduce((sum, img) => sum + img.base64.length * 0.75, 0)
+    if (totalBytes > MAX_PAYLOAD_MB * 1024 * 1024) {
+      setErro(
+        `As imagens somam ${(totalBytes / 1024 / 1024).toFixed(1)} MB comprimidas. ` +
+        `Limite: ${MAX_PAYLOAD_MB} MB. Reduza o número de imagens.`
+      )
+      return
+    }
 
-  function lerComoDataUrl(file: File): Promise<string> {
-    return new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = (e) => resolve(e.target?.result as string)
-      reader.readAsDataURL(file)
-    })
+    setImagens(todasImagens)
+    setErro(null)
   }
 
   function removerImagem(idx: number) {
@@ -124,10 +157,40 @@ export default function AnaliseInstagramForm({
 
       const { analise: resultado } = await res.json()
       setAnalise(resultado)
+
+      // Na página avulsa (/analise-instagram), salva automaticamente em analises_instagram
+      if (mostrarBotaoPublico) {
+        await salvarNaTabela(resultado)
+      }
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao gerar análise.')
     } finally {
       setAnalisando(false)
+    }
+  }
+
+  // ── Salvar em analises_instagram (chamado automaticamente na página avulsa) ─
+
+  async function salvarNaTabela(conteudoAnalise: string) {
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      const { data, error } = await supabase
+        .from('analises_instagram')
+        .insert({
+          nome_aluno: nomeAluno || null,
+          conteudo: conteudoAnalise,
+          criado_por: user?.id ?? null,
+        })
+        .select('id')
+        .single()
+
+      if (!error && data) {
+        setIdPublico(data.id)
+      }
+    } catch {
+      // Falha silenciosa — a análise ainda é exibida mesmo se o salvamento falhar
     }
   }
 
@@ -275,7 +338,7 @@ export default function AnaliseInstagramForm({
               Clique ou arraste as imagens aqui
             </p>
             <p className="text-xs text-petroleo/50 mt-1">
-              Até {MAX_IMAGENS} prints · PNG, JPG, WEBP
+              Até {MAX_IMAGENS} prints · PNG, JPG, WEBP · comprimidos automaticamente
             </p>
           </div>
         ) : (
@@ -375,30 +438,20 @@ export default function AnaliseInstagramForm({
             </div>
           )}
 
-          {/* Salvar e gerar link público (página avulsa) */}
-          {mostrarBotaoPublico && (
-            <div className="mt-4 pt-4 border-t border-creme space-y-3">
-              {!idPublico ? (
-                <button
-                  onClick={handleSalvarPublico}
-                  disabled={salvandoPublico}
-                  className="w-full bg-petroleo text-creme py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-                >
-                  {salvandoPublico ? 'Salvando...' : '🔗 Salvar e Copiar Link Público'}
-                </button>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 bg-offwhite rounded-xl px-4 py-2.5 text-sm text-petroleo/70 font-mono truncate border border-creme-dark">
-                    {process.env.NEXT_PUBLIC_APP_URL ?? ''}/analise/publico/{idPublico}
-                  </div>
-                  <button
-                    onClick={handleCopiarLink}
-                    className="px-4 py-2.5 rounded-xl bg-petroleo text-creme text-sm font-medium hover:bg-petroleo-light transition-colors whitespace-nowrap"
-                  >
-                    {linkCopiado ? '✓ Copiado!' : 'Copiar link'}
-                  </button>
+          {/* Link público (página avulsa) — disponível após salvar automaticamente */}
+          {mostrarBotaoPublico && idPublico && (
+            <div className="mt-4 pt-4 border-t border-creme">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 bg-offwhite rounded-xl px-4 py-2.5 text-sm text-petroleo/70 font-mono truncate border border-creme-dark">
+                  {process.env.NEXT_PUBLIC_APP_URL ?? ''}/analise/publico/{idPublico}
                 </div>
-              )}
+                <button
+                  onClick={handleCopiarLink}
+                  className="px-4 py-2.5 rounded-xl bg-petroleo text-creme text-sm font-medium hover:bg-petroleo-light transition-colors whitespace-nowrap"
+                >
+                  {linkCopiado ? '✓ Copiado!' : '🔗 Copiar link'}
+                </button>
+              </div>
             </div>
           )}
         </div>

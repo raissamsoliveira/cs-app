@@ -7,7 +7,11 @@
       "Bash(find C:/Users/raiss/primus-cs-app/primus-cs-app -type f -path */app/\\\\\\(protected\\\\\\)/plano/[id]/*)",
       "Bash(find C:/Users/raiss/primus-cs-app/primus-cs-app/node_modules/next/dist/docs -name *.md)",
       "Bash(find:*)",
-      "Bash(grep -r proxy C:/Users/raiss/primus-cs-app/primus-cs-app/node_modules/next/dist/docs/01-app --include=*.md -l)"
+      "Bash(grep -r proxy C:/Users/raiss/primus-cs-app/primus-cs-app/node_modules/next/dist/docs/01-app --include=*.md -l)",
+      "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/plano/[id]/EditarPlanoBotao.tsx\")",
+      "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/plano/[id]/page.tsx\")",
+      "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/historico/page.tsx\")",
+      "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/historico/FiltrosHistorico.tsx\")"
     ]
   }
 }

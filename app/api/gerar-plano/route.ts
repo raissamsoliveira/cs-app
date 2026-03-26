@@ -2,12 +2,14 @@ import Anthropic from '@anthropic-ai/sdk'
 
 /**
  * POST /api/gerar-plano
- * Gera um Plano de Ação personalizado via API Anthropic (claude-sonnet-4-20250514).
+ * Gera um Plano de Ação personalizado via API Anthropic.
  * Body: { nomeAluno, tutora, contexto, imagens? }
- * Response: { plano, analiseInstagram? }
+ * Response: { plano }
+ *
+ * As imagens do Instagram (quando fornecidas) são usadas apenas como contexto
+ * visual — a análise de Instagram é sempre um campo separado (coluna analise_instagram).
  */
 
-// Aumenta timeout para suportar análise de imagens
 export const maxDuration = 60
 
 const SYSTEM_PROMPT = `Você é um estrategista de Customer Success da Mentoria Primus, da Ser Mais Criativo (Samer AGI). Gere um Plano de Ação personalizado no padrão da mentoria.
@@ -28,11 +30,7 @@ ESTRUTURA DO PLANO (use exatamente esses títulos, sem emojis):
 (gere uma tabela com 8 a 12 linhas e as colunas: Tarefa | Ação | Status | Material)
 ## Suporte
 
-REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno. Não use emojis nos títulos das seções.`
-
-const INSTRUCAO_INSTAGRAM = `
-
-Além do plano de ação, analise os prints do Instagram fornecidos e insira uma seção '## Análise de Instagram' ENTRE as seções 'Principais Direcionamentos' e 'Tarefas'. A seção deve conter: 1) Posicionamento atual da conta, 2) Análise visual do feed, 3) Padrão de conteúdo identificado, 4) Pontos fortes, 5) Oportunidades de melhoria, 6) Recomendações estratégicas. Seja específico e use linguagem profissional. Não use emojis no título da seção.`
+REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno. Não use emojis nos títulos das seções. NÃO inclua seção de Análise de Instagram no plano — se imagens do Instagram forem fornecidas, use-as apenas como contexto visual para personalizar as demais seções.`
 
 interface ImagemInput {
   data: string
@@ -40,22 +38,6 @@ interface ImagemInput {
 }
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-/** Extrai o trecho "## Análise de Instagram" do plano gerado */
-function extrairAnaliseInstagram(plano: string): string | null {
-  // Suporta tanto o formato novo (sem emoji) quanto o legado (com emoji)
-  const marcadores = ['## Análise de Instagram', '## 📊 Análise de Instagram']
-  for (const marcador of marcadores) {
-    const idx = plano.indexOf(marcador)
-    if (idx !== -1) {
-      // Extrai só até a próxima seção ## (ou fim do texto)
-      const resto = plano.slice(idx)
-      const fimIdx = resto.indexOf('\n## ', 3)
-      return (fimIdx !== -1 ? resto.slice(0, fimIdx) : resto).trim()
-    }
-  }
-  return null
-}
 
 export async function POST(request: Request) {
   try {
@@ -83,10 +65,12 @@ Tutora responsável: ${tutora}
 
 ${contexto}
 
-Gere o plano completo seguindo rigorosamente a estrutura e regras definidas.${temImagens ? INSTRUCAO_INSTAGRAM : ''}`
+Gere o plano completo seguindo rigorosamente a estrutura e regras definidas.${
+      temImagens
+        ? '\n\nAs imagens do Instagram foram fornecidas como contexto visual. Use-as para personalizar o plano, mas NÃO inclua uma seção de Análise de Instagram.'
+        : ''
+    }`
 
-    // Com imagens: content array com blocos de imagem + texto
-    // Sem imagens: string simples
     const messageContent = temImagens
       ? [
           ...imagens!.map((img) => ({
@@ -113,9 +97,7 @@ Gere o plano completo seguindo rigorosamente a estrutura e regras definidas.${te
       .map((b) => b.text)
       .join('\n')
 
-    const analiseInstagram = temImagens ? extrairAnaliseInstagram(plano) : null
-
-    return Response.json({ plano, analiseInstagram })
+    return Response.json({ plano })
   } catch (err) {
     console.error('[gerar-plano]', err)
     const message = err instanceof Error ? err.message : 'Erro interno do servidor.'

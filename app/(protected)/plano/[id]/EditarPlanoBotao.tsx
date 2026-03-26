@@ -46,6 +46,7 @@ export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo 
 
       // Passo 2: salva o plano atualizado no Supabase
       const supabase = createClient()
+      // UPDATE apenas em "conteudo" — analise_instagram é preservada
       const { error } = await supabase
         .from('planos')
         .update({ conteudo: plano })
@@ -68,9 +69,9 @@ export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo 
     <div className="flex-1 flex flex-col gap-3">
       <button
         onClick={() => { setAberto(!aberto); setErro(null); setSucesso(false) }}
-        className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
+        className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
       >
-        {aberto ? '✕ Fechar Editor' : '✏️ Editar Plano'}
+        {aberto ? '✕ Fechar' : '✨ Editar com IA'}
       </button>
 
       {sucesso && (

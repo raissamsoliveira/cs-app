@@ -17,14 +17,15 @@ MENTORIA PRIMUS — 6 meses, 4 pilares:
 
 ENTREGÁVEIS: Mentorias semanais quinzenais com Samer AGI (2h) e com liderança do time (2h). 3 cursos: Escrita Persuasiva, Oratória Criativa, IAGI para Criadores. Diagnóstico com tutora. 2 sessões de destrave com terapeuta. 2 consultorias de imagem e estilo. IAs: IAGI Criadores, IA Palestras, IA Avaliadora de Discursos, IA Financeira.
 
-ESTRUTURA DO PLANO:
+ESTRUTURA DO PLANO (use exatamente esses títulos, sem emojis):
 # PLANO DE AÇÃO — [NOME]
-## 🎯 Principal Objetivo na Mentoria
-## 📍 Principais Direcionamentos (3 a 5, título em negrito, 2-4 linhas cada)
-## ✅ Tarefas | Ação | Status | Material | (8 a 12 tarefas)
-## 💬 Suporte
+## Principal Objetivo na Mentoria
+## Principais Direcionamentos (3 a 5, título em negrito, 2-4 linhas cada)
+## Tarefas
+(gere uma tabela com 8 a 12 linhas e as colunas: Tarefa | Ação | Status | Material)
+## Suporte
 
-REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno.`
+REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno. Não use emojis nos títulos das seções.`
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
