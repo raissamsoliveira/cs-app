@@ -5,7 +5,9 @@ import CopiarBotao from './CopiarBotao'
 import CriarNotionBotao from './CriarNotionBotao'
 import EditarPlanoBotao from './EditarPlanoBotao'
 import BaixarPdfBotao from './BaixarPdfBotao'
+import CopiarLinkPublicoBotao from './CopiarLinkPublicoBotao'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
+import AnaliseInstagramForm from '@/components/AnaliseInstagramForm'
 
 /**
  * Visualização completa de um plano de ação.
@@ -39,43 +41,35 @@ export default async function PlanoPage({
         }
 
         @media print {
-          /* Remove rodapé automático do navegador (URL, data, nº de página) */
           @page { margin: 1.5cm; size: A4; }
 
-          /* Força impressão de cores de fundo em todos os elementos */
           * {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
 
-          /* Oculta tudo por padrão */
           body * { visibility: hidden; }
 
-          /* Mostra apenas a área de impressão e seus filhos */
           #plano-print-area,
           #plano-print-area * { visibility: visible; }
 
-          /* Posiciona no topo da página sem padding extra (margem vem do @page) */
           #plano-print-area {
             position: absolute;
             inset: 0;
             background: white;
           }
 
-          /* Usa Poppins em todos os headings para evitar emoji de sistema */
           #plano-print-area h1,
           #plano-print-area h2,
           #plano-print-area h3 {
             font-family: 'Poppins', sans-serif;
           }
 
-          /* Remove sombra do card de conteúdo */
           #plano-conteudo {
             box-shadow: none !important;
             border: 1px solid #e8e0d6 !important;
           }
 
-          /* Tabelas com bordas visíveis na impressão */
           #plano-conteudo table {
             border-collapse: collapse !important;
             width: 100% !important;
@@ -85,14 +79,13 @@ export default async function PlanoPage({
             border: 1px solid #ccc !important;
           }
 
-          /* Evita quebra de página dentro de headings e tabelas */
           h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
           table { page-break-inside: avoid; break-inside: avoid; }
         }
       `}</style>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Breadcrumb — oculto na impressão via visibility: hidden global */}
+        {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-petroleo/50 mb-6">
           <Link href="/historico" className="hover:text-petroleo transition-colors">
             Histórico
@@ -129,8 +122,8 @@ export default async function PlanoPage({
           </div>
         </div>
 
-        {/* Ações — ficam fora da área de impressão */}
-        <div className="flex flex-col gap-3">
+        {/* Ações */}
+        <div className="flex flex-col gap-3 mb-10">
           <div className="flex flex-col sm:flex-row gap-3">
             <CopiarBotao conteudo={plano.conteudo} />
             <CriarNotionBotao
@@ -141,6 +134,9 @@ export default async function PlanoPage({
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
             <BaixarPdfBotao nomeAluno={plano.nome_aluno} />
+            <CopiarLinkPublicoBotao planoId={plano.id} />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
             <Link
               href="/historico"
               className="flex-1 flex items-center justify-center px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
@@ -153,6 +149,23 @@ export default async function PlanoPage({
             nomeAluno={plano.nome_aluno}
             tutora={plano.tutora}
             conteudo={plano.conteudo}
+          />
+        </div>
+
+        {/* Análise de Instagram */}
+        <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
+          <div className="mb-5">
+            <h2 className="font-playfair text-xl text-petroleo font-semibold">
+              📷 Análise de Instagram
+            </h2>
+            <p className="text-petroleo/60 text-sm mt-1">
+              Envie prints do Instagram de {plano.nome_aluno} para gerar uma análise estratégica
+            </p>
+          </div>
+          <AnaliseInstagramForm
+            nomeAlunoInicial={plano.nome_aluno}
+            planoId={plano.id}
+            analiseExistente={plano.analise_instagram ?? null}
           />
         </div>
       </div>

@@ -1,11 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
 
 type Aba = 'texto-bruto' | 'campos'
+
+interface ImagemCarregada {
+  previewUrl: string  // data URL completo para <img src>
+  base64: string      // dados após a vírgula
+  mediaType: string
+}
 
 /**
  * Novo Plano — formulário com duas abas para geração de planos de ação.
@@ -31,6 +37,12 @@ export default function NovoPlanoPage() {
   const [areaAtuacao, setAreaAtuacao] = useState('')
   const [observacoes, setObservacoes] = useState('')
 
+  // Instagram — imagens e análise gerada
+  const [imagens, setImagens] = useState<ImagemCarregada[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const inputRefInstagram = useRef<HTMLInputElement>(null)
+  const [analiseInstagram, setAnaliseInstagram] = useState<string | null>(null)
+
   // Estado da geração
   const [gerando, setGerando] = useState(false)
   const [planoGerado, setPlanoGerado] = useState<string | null>(null)
@@ -42,6 +54,30 @@ export default function NovoPlanoPage() {
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [notionUrl, setNotionUrl] = useState<string | null>(null)
 
+  // ── Handlers de upload de imagens ──────────────────────────────────────────
+
+  async function processarImagens(files: FileList | File[]) {
+    const lista = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    const vagas = 6 - imagens.length
+    if (vagas <= 0) return
+
+    const novas: ImagemCarregada[] = []
+    for (const file of lista.slice(0, vagas)) {
+      const previewUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = (e) => resolve(e.target?.result as string)
+        reader.readAsDataURL(file)
+      })
+      novas.push({ previewUrl, base64: previewUrl.split(',')[1], mediaType: file.type })
+    }
+
+    setImagens((prev) => [...prev, ...novas])
+  }
+
+  function removerImagem(idx: number) {
+    setImagens((prev) => prev.filter((_, i) => i !== idx))
+  }
+
   async function handleGerar() {
     if (!nomeAluno.trim() || !tutora.trim()) {
       setErro('Preencha o nome do aluno e a tutora antes de gerar o plano.')
@@ -51,6 +87,7 @@ export default function NovoPlanoPage() {
     setGerando(true)
     setErro(null)
     setPlanoGerado(null)
+    setAnaliseInstagram(null)
     setMensagem(null)
     setNotionUrl(null)
 
@@ -81,7 +118,14 @@ export default function NovoPlanoPage() {
       const res = await fetch('/api/gerar-plano', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nomeAluno, tutora, contexto }),
+        body: JSON.stringify({
+          nomeAluno,
+          tutora,
+          contexto,
+          ...(imagens.length > 0 && {
+            imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
+          }),
+        }),
       })
 
       if (!res.ok) {
@@ -89,8 +133,9 @@ export default function NovoPlanoPage() {
         throw new Error(data.error || `Erro ${res.status}`)
       }
 
-      const { plano } = await res.json()
+      const { plano, analiseInstagram: analise } = await res.json()
       setPlanoGerado(plano)
+      if (analise) setAnaliseInstagram(analise)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao gerar o plano. Tente novamente.')
     } finally {
@@ -115,6 +160,7 @@ export default function NovoPlanoPage() {
       tutora,
       conteudo: planoGerado,
       criado_por: user?.id,
+      ...(analiseInstagram && { analise_instagram: analiseInstagram }),
     })
 
     if (error) {
@@ -196,6 +242,76 @@ export default function NovoPlanoPage() {
             />
           </div>
         </div>
+      </div>
+
+      {/* Análise de Instagram (opcional) */}
+      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
+        <h2 className="font-playfair text-lg text-petroleo font-semibold mb-1">
+          Análise de Instagram <span className="text-petroleo/40 font-normal text-sm">(opcional)</span>
+        </h2>
+        <p className="text-petroleo/50 text-xs mb-4">
+          Anexe até 6 prints do perfil do aluno para gerar uma análise estratégica junto com o plano
+        </p>
+
+        <input
+          ref={inputRefInstagram}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => e.target.files && processarImagens(e.target.files)}
+          className="hidden"
+        />
+
+        {imagens.length === 0 ? (
+          <div
+            onDrop={(e) => { e.preventDefault(); setIsDragging(false); processarImagens(e.dataTransfer.files) }}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            onClick={() => inputRefInstagram.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+              isDragging ? 'border-petroleo bg-creme/20' : 'border-creme-dark hover:border-petroleo/40 hover:bg-offwhite'
+            }`}
+          >
+            <p className="text-2xl mb-1">📷</p>
+            <p className="text-sm font-medium text-petroleo">Clique ou arraste prints do Instagram</p>
+            <p className="text-xs text-petroleo/40 mt-0.5">Até 6 imagens · PNG, JPG, WEBP</p>
+          </div>
+        ) : (
+          <div
+            onDrop={(e) => { e.preventDefault(); setIsDragging(false); processarImagens(e.dataTransfer.files) }}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
+              isDragging ? 'border-petroleo bg-creme/10' : 'border-creme-dark'
+            }`}
+          >
+            {imagens.map((img, i) => (
+              <div key={i} className="relative group aspect-square">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.previewUrl}
+                  alt={`Print ${i + 1}`}
+                  className="w-full h-full object-cover rounded-lg border border-creme"
+                />
+                <button
+                  onClick={() => removerImagem(i)}
+                  className="absolute top-1 right-1 w-5 h-5 bg-petroleo text-creme rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {imagens.length < 6 && (
+              <button
+                type="button"
+                onClick={() => inputRefInstagram.current?.click()}
+                className="aspect-square rounded-lg border-2 border-dashed border-creme-dark hover:border-petroleo/40 flex items-center justify-center text-petroleo/30 hover:text-petroleo/60 transition-colors text-2xl"
+              >
+                +
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Abas */}

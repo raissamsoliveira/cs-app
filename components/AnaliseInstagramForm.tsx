@@ -1,0 +1,426 @@
+'use client'
+
+import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import PlanoMarkdown from '@/components/PlanoMarkdown'
+
+interface ImagemCarregada {
+  previewUrl: string  // data URL completo para <img src>
+  base64: string      // apenas os dados (após a vírgula)
+  mediaType: string   // ex: image/jpeg
+}
+
+interface Props {
+  /** Nome do aluno pré-preenchido (página do plano) */
+  nomeAlunoInicial?: string
+  /** Exibe campo de texto para o nome (página avulsa) */
+  mostrarInputNome?: boolean
+  /** Se fornecido, exibe botão "Salvar Análise" no Supabase (tabela planos) */
+  planoId?: string
+  /** Análise já salva anteriormente */
+  analiseExistente?: string | null
+  /** Exibe botão "Salvar e Copiar Link" para gerar link público */
+  mostrarBotaoPublico?: boolean
+}
+
+const MAX_IMAGENS = 6
+
+export default function AnaliseInstagramForm({
+  nomeAlunoInicial = '',
+  mostrarInputNome = false,
+  planoId,
+  analiseExistente,
+  mostrarBotaoPublico = false,
+}: Props) {
+  const router = useRouter()
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const [nomeAluno, setNomeAluno] = useState(nomeAlunoInicial)
+  const [imagens, setImagens] = useState<ImagemCarregada[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+  const [analisando, setAnalisando] = useState(false)
+  const [analise, setAnalise] = useState<string | null>(analiseExistente ?? null)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState(false)
+  const [sucesso, setSucesso] = useState(false)
+
+  // Estado do link público
+  const [salvandoPublico, setSalvandoPublico] = useState(false)
+  const [idPublico, setIdPublico] = useState<string | null>(null)
+  const [linkCopiado, setLinkCopiado] = useState(false)
+
+  // ── Carregamento de imagens ──────────────────────────────────────────────
+
+  async function processarArquivos(files: FileList | File[]) {
+    const lista = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    const vagas = MAX_IMAGENS - imagens.length
+    if (vagas <= 0) return
+
+    const novas: ImagemCarregada[] = []
+    for (const file of lista.slice(0, vagas)) {
+      const previewUrl = await lerComoDataUrl(file)
+      novas.push({
+        previewUrl,
+        base64: previewUrl.split(',')[1],
+        mediaType: file.type,
+      })
+    }
+
+    setImagens((prev) => [...prev, ...novas])
+    setErro(null)
+  }
+
+  function lerComoDataUrl(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve(e.target?.result as string)
+      reader.readAsDataURL(file)
+    })
+  }
+
+  function removerImagem(idx: number) {
+    setImagens((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragging(false)
+    processarArquivos(e.dataTransfer.files)
+  }
+
+  // ── Análise ──────────────────────────────────────────────────────────────
+
+  async function handleAnalisar() {
+    if (!nomeAluno.trim()) {
+      setErro('Informe o nome do aluno ou perfil.')
+      return
+    }
+    if (imagens.length === 0) {
+      setErro('Adicione pelo menos uma imagem.')
+      return
+    }
+
+    setAnalisando(true)
+    setErro(null)
+    setSucesso(false)
+    setIdPublico(null)
+
+    try {
+      const res = await fetch('/api/analisar-instagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nomeAluno,
+          imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
+        }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Erro ${res.status}`)
+      }
+
+      const { analise: resultado } = await res.json()
+      setAnalise(resultado)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar análise.')
+    } finally {
+      setAnalisando(false)
+    }
+  }
+
+  // ── Salvar no Supabase ───────────────────────────────────────────────────
+
+  async function handleSalvar() {
+    if (!analise || !planoId) return
+    setSalvando(true)
+    setErro(null)
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('planos')
+        .update({ analise_instagram: analise })
+        .eq('id', planoId)
+
+      if (error) throw new Error(error.message)
+      setSucesso(true)
+      router.refresh()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar.')
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  // ── Copiar ───────────────────────────────────────────────────────────────
+
+  async function handleCopiar() {
+    if (!analise) return
+    await navigator.clipboard.writeText(analise)
+    setCopiado(true)
+    setTimeout(() => setCopiado(false), 2000)
+  }
+
+  // ── Salvar como link público ──────────────────────────────────────────────
+
+  async function handleSalvarPublico() {
+    if (!analise) return
+    setSalvandoPublico(true)
+    setErro(null)
+
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+
+      const { data, error } = await supabase
+        .from('analises_instagram')
+        .insert({
+          nome_aluno: nomeAluno || null,
+          conteudo: analise,
+          criado_por: user?.id ?? null,
+        })
+        .select('id')
+        .single()
+
+      if (error || !data) throw new Error(error?.message ?? 'Erro ao salvar.')
+
+      const base = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
+      const url = `${base}/analise/publico/${data.id}`
+
+      await navigator.clipboard.writeText(url)
+      setIdPublico(data.id)
+      setLinkCopiado(true)
+      setTimeout(() => setLinkCopiado(false), 3000)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar análise.')
+    } finally {
+      setSalvandoPublico(false)
+    }
+  }
+
+  async function handleCopiarLink() {
+    if (!idPublico) return
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
+    await navigator.clipboard.writeText(`${base}/analise/publico/${idPublico}`)
+    setLinkCopiado(true)
+    setTimeout(() => setLinkCopiado(false), 2000)
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-5">
+      {/* Nome do aluno (apenas na página avulsa) */}
+      {mostrarInputNome && (
+        <div>
+          <label className="block text-sm font-medium text-petroleo mb-1.5">
+            Nome do aluno / perfil analisado *
+          </label>
+          <input
+            type="text"
+            value={nomeAluno}
+            onChange={(e) => setNomeAluno(e.target.value)}
+            placeholder="Ex: João Silva (@joaosilva)"
+            className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm"
+          />
+        </div>
+      )}
+
+      {/* Zona de upload */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-sm font-medium text-petroleo">
+            Prints do Instagram
+            <span className="text-petroleo/50 font-normal ml-1">
+              ({imagens.length}/{MAX_IMAGENS})
+            </span>
+          </label>
+          {imagens.length < MAX_IMAGENS && (
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="text-petroleo/60 text-xs hover:text-petroleo transition-colors"
+            >
+              + Adicionar
+            </button>
+          )}
+        </div>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={(e) => e.target.files && processarArquivos(e.target.files)}
+          className="hidden"
+        />
+
+        {imagens.length === 0 ? (
+          <div
+            onDrop={onDrop}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            onClick={() => inputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
+              isDragging
+                ? 'border-petroleo bg-creme/20'
+                : 'border-creme-dark hover:border-petroleo/40 hover:bg-offwhite'
+            }`}
+          >
+            <p className="text-3xl mb-2">📷</p>
+            <p className="text-sm font-medium text-petroleo">
+              Clique ou arraste as imagens aqui
+            </p>
+            <p className="text-xs text-petroleo/50 mt-1">
+              Até {MAX_IMAGENS} prints · PNG, JPG, WEBP
+            </p>
+          </div>
+        ) : (
+          <div
+            onDrop={onDrop}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
+              isDragging ? 'border-petroleo bg-creme/10' : 'border-creme-dark'
+            }`}
+          >
+            {imagens.map((img, i) => (
+              <div key={i} className="relative group aspect-square">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.previewUrl}
+                  alt={`Print ${i + 1}`}
+                  className="w-full h-full object-cover rounded-lg border border-creme"
+                />
+                <button
+                  onClick={() => removerImagem(i)}
+                  className="absolute top-1 right-1 w-5 h-5 bg-petroleo text-creme rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {imagens.length < MAX_IMAGENS && (
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="aspect-square rounded-lg border-2 border-dashed border-creme-dark hover:border-petroleo/40 flex items-center justify-center text-petroleo/30 hover:text-petroleo/60 transition-colors text-2xl"
+              >
+                +
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Erro */}
+      {erro && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
+          {erro}
+        </div>
+      )}
+
+      {/* Botão gerar */}
+      <button
+        onClick={handleAnalisar}
+        disabled={analisando}
+        className="w-full bg-petroleo text-creme py-3 px-6 rounded-xl font-semibold text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+      >
+        {analisando ? '🔍 Analisando...' : '🔍 Gerar Análise'}
+      </button>
+
+      {/* Resultado */}
+      {analise && (
+        <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-playfair text-lg text-petroleo font-semibold">
+              Análise gerada
+            </h3>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopiar}
+                className="text-petroleo/60 text-xs hover:text-petroleo transition-colors px-3 py-1.5 rounded-lg border border-creme-dark hover:border-petroleo/30"
+              >
+                {copiado ? '✓ Copiado' : 'Copiar'}
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="text-petroleo/60 text-xs hover:text-petroleo transition-colors px-3 py-1.5 rounded-lg border border-creme-dark hover:border-petroleo/30"
+              >
+                PDF
+              </button>
+            </div>
+          </div>
+
+          <div id="analise-conteudo" className="max-h-[600px] overflow-y-auto">
+            <PlanoMarkdown conteudo={analise} />
+          </div>
+
+          {/* Salvar no plano (quando planoId fornecido) */}
+          {planoId && (
+            <div className="mt-4 pt-4 border-t border-creme flex items-center gap-3">
+              <button
+                onClick={handleSalvar}
+                disabled={salvando}
+                className="bg-petroleo text-creme py-2 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              >
+                {salvando ? 'Salvando...' : '💾 Salvar Análise'}
+              </button>
+              {sucesso && (
+                <span className="text-sm text-green-600">✓ Análise salva com sucesso!</span>
+              )}
+            </div>
+          )}
+
+          {/* Salvar e gerar link público (página avulsa) */}
+          {mostrarBotaoPublico && (
+            <div className="mt-4 pt-4 border-t border-creme space-y-3">
+              {!idPublico ? (
+                <button
+                  onClick={handleSalvarPublico}
+                  disabled={salvandoPublico}
+                  className="w-full bg-petroleo text-creme py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                >
+                  {salvandoPublico ? 'Salvando...' : '🔗 Salvar e Copiar Link Público'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-offwhite rounded-xl px-4 py-2.5 text-sm text-petroleo/70 font-mono truncate border border-creme-dark">
+                    {process.env.NEXT_PUBLIC_APP_URL ?? ''}/analise/publico/{idPublico}
+                  </div>
+                  <button
+                    onClick={handleCopiarLink}
+                    className="px-4 py-2.5 rounded-xl bg-petroleo text-creme text-sm font-medium hover:bg-petroleo-light transition-colors whitespace-nowrap"
+                  >
+                    {linkCopiado ? '✓ Copiado!' : 'Copiar link'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Análise já salva (quando existe e nenhuma nova foi gerada) */}
+      {analiseExistente && !analise && (
+        <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-playfair text-lg text-petroleo font-semibold">
+              Análise salva
+            </h3>
+            <button
+              onClick={() => setAnalise(analiseExistente)}
+              className="text-petroleo/60 text-xs hover:text-petroleo transition-colors"
+            >
+              Regenerar
+            </button>
+          </div>
+          <PlanoMarkdown conteudo={analiseExistente} />
+        </div>
+      )}
+    </div>
+  )
+}

@@ -36,8 +36,17 @@ export async function proxy(request: NextRequest) {
 
   const path = request.nextUrl.pathname
 
-  // Redireciona para /login se não autenticado e tentando acessar rota protegida
-  if (!user && !path.startsWith('/login') && !path.startsWith('/api')) {
+  // Redireciona para /login se não autenticado e tentando acessar rota protegida.
+  // Rotas públicas (sem autenticação): /p/, /publico/, /analise/publico/
+  const isPublicRoute =
+    path.startsWith('/login') ||
+    path.startsWith('/api') ||
+    path.startsWith('/p/') ||
+    path === '/publico' ||
+    path.startsWith('/publico/') ||
+    path.startsWith('/analise/publico/')
+
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)

@@ -28,15 +28,18 @@ export default function PlanoMarkdown({ conteudo }: { conteudo: string }) {
               </h1>
             )
 
-          case 'h2':
+          case 'h2': {
+            const titulo = stripEmoji(seg.conteudo)
             return (
               <h2
                 key={i}
-                className="font-playfair text-xl font-semibold text-petroleo mt-5 mb-2"
+                className="font-playfair text-xl font-semibold text-petroleo mt-5 mb-2 flex items-center gap-2"
               >
-                {renderInline(seg.conteudo)}
+                <span className="shrink-0">{getH2Icon(titulo)}</span>
+                {renderInline(titulo)}
               </h2>
             )
+          }
 
           case 'h3':
             return (
@@ -67,18 +70,96 @@ export default function PlanoMarkdown({ conteudo }: { conteudo: string }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Ícones SVG para seções h2                                                   */
+/* -------------------------------------------------------------------------- */
+
+const ICON_PROPS = {
+  width: 18,
+  height: 18,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: '#05343d',
+  strokeWidth: 2,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+}
+
+function IconTarget() {
+  return (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </svg>
+  )
+}
+
+function IconPin() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M12 2C8.686 2 6 4.686 6 8c0 4.418 6 12 6 12s6-7.582 6-12c0-3.314-2.686-6-6-6z" />
+      <circle cx="12" cy="8" r="2" />
+    </svg>
+  )
+}
+
+function IconBarChart() {
+  return (
+    <svg {...ICON_PROPS}>
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  )
+}
+
+function IconChecklist() {
+  return (
+    <svg {...ICON_PROPS}>
+      <polyline points="9 11 12 14 22 4" />
+      <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+    </svg>
+  )
+}
+
+function IconChat() {
+  return (
+    <svg {...ICON_PROPS}>
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+    </svg>
+  )
+}
+
+/** Remove emojis do início e qualquer coisa após " | " no título h2 */
+function stripEmoji(s: string): string {
+  const semEmoji = s.replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]+/u, '').trim()
+  // Remove sufixo " | Ação | Status ..." que o modelo pode incluir no título
+  const pipIdx = semEmoji.indexOf(' | ')
+  return pipIdx !== -1 ? semEmoji.slice(0, pipIdx).trim() : semEmoji
+}
+
+/** Retorna o ícone SVG correspondente ao título da seção h2 */
+function getH2Icon(titulo: string): ReactNode {
+  const t = titulo.toLowerCase()
+  if (t.includes('objetivo')) return <IconTarget />
+  if (t.includes('direcion')) return <IconPin />
+  if (t.includes('instagram')) return <IconBarChart />
+  if (t.includes('tarefa')) return <IconChecklist />
+  if (t.includes('suporte')) return <IconChat />
+  return null
+}
+
+/* -------------------------------------------------------------------------- */
 /* Tabela                                                                      */
 /* -------------------------------------------------------------------------- */
 
 function TabelaMarkdown({ linhas }: { linhas: string[] }) {
-  // Separa células de uma linha: "| a | b | c |" → ["a", "b", "c"]
   const celulas = (linha: string) =>
     linha
       .split('|')
-      .slice(1, -1) // remove o primeiro e último (vazios pelo | inicial/final)
+      .slice(1, -1)
       .map((c) => c.trim())
 
-  // Detecta linha separadora: contém apenas -, :, espaço
   const isSeparador = (linha: string) => /^[\s|:\-]+$/.test(linha)
 
   const linhasValidas = linhas.filter((l) => !isSeparador(l))
@@ -89,7 +170,7 @@ function TabelaMarkdown({ linhas }: { linhas: string[] }) {
 
   return (
     <div className="my-4 overflow-x-auto rounded-xl border border-creme">
-      <table className="w-full text-sm border-collapse">
+      <table className="w-full text-sm border-collapse" style={{ tableLayout: 'fixed' }}>
         <thead>
           <tr className="bg-petroleo text-creme">
             {celulas(cabecalho).map((cel, i) => (
@@ -111,6 +192,7 @@ function TabelaMarkdown({ linhas }: { linhas: string[] }) {
               {celulas(linha).map((cel, ci) => (
                 <td
                   key={ci}
+                  style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
                   className={`px-4 py-2.5 text-petroleo/85 align-top border-t border-creme font-poppins ${
                     ci === 0 ? 'font-medium' : ''
                   }`}
@@ -135,7 +217,7 @@ type TipoSegmento = 'h1' | 'h2' | 'h3' | 'tabela' | 'paragrafo' | 'vazio'
 interface Segmento {
   tipo: TipoSegmento
   conteudo: string
-  linhas?: string[] // usado apenas em tabelas
+  linhas?: string[]
 }
 
 function parseSegmentos(texto: string): Segmento[] {
@@ -147,35 +229,30 @@ function parseSegmentos(texto: string): Segmento[] {
     const raw = linhas[i]
     const trimmed = raw.trim()
 
-    // Linha vazia
     if (!trimmed) {
       segmentos.push({ tipo: 'vazio', conteudo: '' })
       i++
       continue
     }
 
-    // Heading 1
     if (trimmed.startsWith('# ')) {
       segmentos.push({ tipo: 'h1', conteudo: trimmed.slice(2).trim() })
       i++
       continue
     }
 
-    // Heading 2
     if (trimmed.startsWith('## ')) {
       segmentos.push({ tipo: 'h2', conteudo: trimmed.slice(3).trim() })
       i++
       continue
     }
 
-    // Heading 3
     if (trimmed.startsWith('### ')) {
       segmentos.push({ tipo: 'h3', conteudo: trimmed.slice(4).trim() })
       i++
       continue
     }
 
-    // Tabela: linha que começa com | (e tem pelo menos um | a mais)
     if (trimmed.startsWith('|') && trimmed.includes('|', 1)) {
       const linhasTabela: string[] = []
       while (i < linhas.length && linhas[i].trim().startsWith('|')) {
@@ -186,7 +263,6 @@ function parseSegmentos(texto: string): Segmento[] {
       continue
     }
 
-    // Parágrafo comum
     segmentos.push({ tipo: 'paragrafo', conteudo: trimmed })
     i++
   }
@@ -220,6 +296,5 @@ function renderInline(texto: string): ReactNode {
     partes.push(texto.slice(lastIndex))
   }
 
-  // Sem nenhum match — retorna o texto direto (evita array de 1 item)
   return partes.length === 1 && typeof partes[0] === 'string' ? partes[0] : partes
 }
