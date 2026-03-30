@@ -94,6 +94,8 @@ export default async function PlanoPage({
               nome_aluno: plano.nome_aluno,
               tutora: plano.tutora,
               conteudo: plano.conteudo,
+              createdAt: plano.created_at,
+              hasAnalise: !!plano.analise_instagram,
             }}
           />
         </div>

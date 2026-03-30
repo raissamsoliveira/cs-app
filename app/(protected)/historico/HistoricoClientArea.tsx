@@ -180,7 +180,7 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
                       href={
                         item.tipo === 'plano'
                           ? `/plano/${item.id}`
-                          : `/analise/publico/${item.id}`
+                          : `/analise/${item.id}`
                       }
                       className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
                     >
