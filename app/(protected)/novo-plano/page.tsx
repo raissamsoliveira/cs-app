@@ -1,17 +1,11 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
 
 type Aba = 'texto-bruto' | 'campos'
-
-interface ImagemCarregada {
-  previewUrl: string  // data URL completo para <img src>
-  base64: string      // dados após a vírgula
-  mediaType: string
-}
 
 /**
  * Novo Plano — formulário com duas abas para geração de planos de ação.
@@ -26,6 +20,20 @@ export default function NovoPlanoPage() {
   // Campos comuns
   const [nomeAluno, setNomeAluno] = useState('')
   const [tutora, setTutora] = useState('')
+  const [tutoras, setTutoras] = useState<string[]>([])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase
+      .from('planos')
+      .select('tutora')
+      .not('tutora', 'is', null)
+      .order('tutora')
+      .then(({ data }) => {
+        const lista = [...new Set((data ?? []).map((p) => p.tutora as string))]
+        setTutoras(lista)
+      })
+  }, [])
 
   // Aba 1: texto bruto
   const [textoBruto, setTextoBruto] = useState('')
@@ -37,10 +45,10 @@ export default function NovoPlanoPage() {
   const [areaAtuacao, setAreaAtuacao] = useState('')
   const [observacoes, setObservacoes] = useState('')
 
-  // Instagram — imagens enviadas como contexto visual para o plano
-  const [imagens, setImagens] = useState<ImagemCarregada[]>([])
-  const [isDragging, setIsDragging] = useState(false)
-  const inputRefInstagram = useRef<HTMLInputElement>(null)
+  // PDA21 — PDF opcional
+  const [pda21Base64, setPda21Base64] = useState<string | null>(null)
+  const [nomePda21, setNomePda21] = useState('')
+  const inputRefPda21 = useRef<HTMLInputElement>(null)
 
   // Estado da geração
   const [gerando, setGerando] = useState(false)
@@ -53,29 +61,28 @@ export default function NovoPlanoPage() {
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [notionUrl, setNotionUrl] = useState<string | null>(null)
 
-  // ── Handlers de upload de imagens ──────────────────────────────────────────
+  // ── Handler PDA21 ──────────────────────────────────────────────────────────
 
-  async function processarImagens(files: FileList | File[]) {
-    const lista = Array.from(files).filter((f) => f.type.startsWith('image/'))
-    const vagas = 6 - imagens.length
-    if (vagas <= 0) return
-
-    const novas: ImagemCarregada[] = []
-    for (const file of lista.slice(0, vagas)) {
-      const previewUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onload = (e) => resolve(e.target?.result as string)
-        reader.readAsDataURL(file)
-      })
-      novas.push({ previewUrl, base64: previewUrl.split(',')[1], mediaType: file.type })
+  function handlePda21Change(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string
+      setPda21Base64(result.split(',')[1])
+      setNomePda21(file.name)
     }
-
-    setImagens((prev) => [...prev, ...novas])
+    reader.readAsDataURL(file)
+    // Limpa o input para permitir re-seleção do mesmo arquivo
+    e.target.value = ''
   }
 
-  function removerImagem(idx: number) {
-    setImagens((prev) => prev.filter((_, i) => i !== idx))
+  function removerPda21() {
+    setPda21Base64(null)
+    setNomePda21('')
   }
+
+  // ── Handler principal ──────────────────────────────────────────────────────
 
   async function handleGerar() {
     if (!nomeAluno.trim() || !tutora.trim()) {
@@ -120,9 +127,7 @@ export default function NovoPlanoPage() {
           nomeAluno,
           tutora,
           contexto,
-          ...(imagens.length > 0 && {
-            imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
-          }),
+          ...(pda21Base64 && { pda21: pda21Base64 }),
         }),
       })
 
@@ -229,85 +234,18 @@ export default function NovoPlanoPage() {
             <label className="block text-sm font-medium text-petroleo mb-1.5">
               Tutora *
             </label>
-            <input
-              type="text"
+            <select
               value={tutora}
               onChange={(e) => setTutora(e.target.value)}
-              placeholder="Ex: Ana Paula"
-              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition"
-            />
+              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition"
+            >
+              <option value="">Selecione a tutora</option>
+              {tutoras.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
           </div>
         </div>
-      </div>
-
-      {/* Análise de Instagram (opcional) */}
-      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
-        <h2 className="font-playfair text-lg text-petroleo font-semibold mb-1">
-          Análise de Instagram <span className="text-petroleo/40 font-normal text-sm">(opcional)</span>
-        </h2>
-        <p className="text-petroleo/50 text-xs mb-4">
-          Anexe até 6 prints do perfil do aluno para gerar uma análise estratégica junto com o plano
-        </p>
-
-        <input
-          ref={inputRefInstagram}
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => e.target.files && processarImagens(e.target.files)}
-          className="hidden"
-        />
-
-        {imagens.length === 0 ? (
-          <div
-            onDrop={(e) => { e.preventDefault(); setIsDragging(false); processarImagens(e.dataTransfer.files) }}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={() => setIsDragging(false)}
-            onClick={() => inputRefInstagram.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-              isDragging ? 'border-petroleo bg-creme/20' : 'border-creme-dark hover:border-petroleo/40 hover:bg-offwhite'
-            }`}
-          >
-            <p className="text-2xl mb-1">📷</p>
-            <p className="text-sm font-medium text-petroleo">Clique ou arraste prints do Instagram</p>
-            <p className="text-xs text-petroleo/40 mt-0.5">Até 6 imagens · PNG, JPG, WEBP</p>
-          </div>
-        ) : (
-          <div
-            onDrop={(e) => { e.preventDefault(); setIsDragging(false); processarImagens(e.dataTransfer.files) }}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={() => setIsDragging(false)}
-            className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
-              isDragging ? 'border-petroleo bg-creme/10' : 'border-creme-dark'
-            }`}
-          >
-            {imagens.map((img, i) => (
-              <div key={i} className="relative group aspect-square">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.previewUrl}
-                  alt={`Print ${i + 1}`}
-                  className="w-full h-full object-cover rounded-lg border border-creme"
-                />
-                <button
-                  onClick={() => removerImagem(i)}
-                  className="absolute top-1 right-1 w-5 h-5 bg-petroleo text-creme rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            {imagens.length < 6 && (
-              <button
-                type="button"
-                onClick={() => inputRefInstagram.current?.click()}
-                className="aspect-square rounded-lg border-2 border-dashed border-creme-dark hover:border-petroleo/40 flex items-center justify-center text-petroleo/30 hover:text-petroleo/60 transition-colors text-2xl"
-              >
-                +
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Abas */}
@@ -383,6 +321,47 @@ export default function NovoPlanoPage() {
               placeholder="Qualquer informação relevante sobre o aluno"
               rows={3}
             />
+          </div>
+        )}
+      </div>
+
+      {/* PDA21 — opcional */}
+      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
+        <h2 className="font-playfair text-lg text-petroleo font-semibold mb-1">
+          Plano de Ataque (PDA21){' '}
+          <span className="text-petroleo/40 font-normal text-sm">(opcional)</span>
+        </h2>
+        <p className="text-petroleo/50 text-xs mb-4">
+          Envie o PDF do PDA21 preenchido pelo aluno para enriquecer o plano de ação
+        </p>
+
+        <input
+          ref={inputRefPda21}
+          type="file"
+          accept="application/pdf"
+          onChange={handlePda21Change}
+          className="hidden"
+        />
+
+        {pda21Base64 ? (
+          <div className="flex items-center gap-3 p-3 bg-offwhite rounded-xl border border-creme-dark">
+            <span className="text-xl">📄</span>
+            <span className="flex-1 text-sm text-petroleo truncate">{nomePda21}</span>
+            <button
+              onClick={removerPda21}
+              className="text-petroleo/40 hover:text-petroleo text-sm transition-colors"
+            >
+              Remover
+            </button>
+          </div>
+        ) : (
+          <div
+            onClick={() => inputRefPda21.current?.click()}
+            className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer border-creme-dark hover:border-petroleo/40 hover:bg-offwhite transition-colors"
+          >
+            <p className="text-2xl mb-1">📄</p>
+            <p className="text-sm font-medium text-petroleo">Clique para selecionar o PDF</p>
+            <p className="text-xs text-petroleo/40 mt-0.5">Apenas arquivos PDF</p>
           </div>
         )}
       </div>

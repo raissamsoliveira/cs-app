@@ -54,7 +54,7 @@ export default function AnaliseInstagramPage() {
 
         {/* Formulário */}
         <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
-          <AnaliseInstagramForm mostrarInputNome mostrarBotaoPublico />
+          <AnaliseInstagramForm mostrarAlunoBusca mostrarTutora mostrarBotaoPublico />
         </div>
       </div>
     </>

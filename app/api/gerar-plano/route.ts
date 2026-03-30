@@ -30,11 +30,22 @@ ESTRUTURA DO PLANO (use exatamente esses títulos, sem emojis):
 (gere uma tabela com 8 a 12 linhas e as colunas: Tarefa | Ação | Status | Material)
 ## Suporte
 
-REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno. Não use emojis nos títulos das seções. NÃO inclua seção de Análise de Instagram no plano — se imagens do Instagram forem fornecidas, use-as apenas como contexto visual para personalizar as demais seções.`
+REGRAS: Segunda pessoa. Nunca mencionar PEAGs, PEAPs, De Frente com o Agi ou Encontro Nacional. Usar dados reais do aluno. Não use emojis nos títulos das seções. NÃO inclua seção de Análise de Instagram no plano — se imagens do Instagram forem fornecidas, use-as apenas como contexto visual para personalizar as demais seções.
+
+Se um PDF do PDA21 for enviado junto, analise as respostas do aluno nas 21 tarefas antes de gerar o plano. Use as respostas para:
+- Personalizar profundamente os Principais Direcionamentos com base nas decisões e clareza que o aluno já tem
+- Evitar tarefas no plano que o aluno já concluiu no PDA21
+- Identificar pontos de confusão ou bloqueio mencionados nas respostas
+- Referenciar decisões específicas que o aluno tomou (ex: 'Você já definiu no PDA21 que...')
+O PDA21 tem 3 blocos: Clareza Essencial (tarefas 1-7), Direção Executiva (tarefas 8-14) e Consolidação Prática (tarefas 15-21). Cada tarefa termina com uma decisão prática.`
 
 interface ImagemInput {
   data: string
   mediaType: string
+}
+
+interface Pda21Input {
+  data: string // base64
 }
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -42,11 +53,12 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { nomeAluno, tutora, contexto, imagens } = body as {
+    const { nomeAluno, tutora, contexto, imagens, pda21 } = body as {
       nomeAluno: string
       tutora: string
       contexto: string
       imagens?: ImagemInput[]
+      pda21?: string
     }
 
     if (!nomeAluno || !tutora || !contexto) {
@@ -57,6 +69,7 @@ export async function POST(request: Request) {
     }
 
     const temImagens = Array.isArray(imagens) && imagens.length > 0
+    const temPda21 = !!pda21
 
     const textoUsuario = `Crie um Plano de Ação personalizado para o seguinte aluno da Mentoria Primus:
 
@@ -69,21 +82,40 @@ Gere o plano completo seguindo rigorosamente a estrutura e regras definidas.${
       temImagens
         ? '\n\nAs imagens do Instagram foram fornecidas como contexto visual. Use-as para personalizar o plano, mas NÃO inclua uma seção de Análise de Instagram.'
         : ''
+    }${
+      temPda21
+        ? '\n\nO PDF do PDA21 foi enviado. Analise as respostas do aluno antes de gerar o plano.'
+        : ''
     }`
 
-    const messageContent = temImagens
-      ? [
-          ...imagens!.map((img) => ({
-            type: 'image' as const,
-            source: {
-              type: 'base64' as const,
-              media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-              data: img.data,
-            },
-          })),
-          { type: 'text' as const, text: textoUsuario },
-        ]
-      : textoUsuario
+    const messageContent =
+      temImagens || temPda21
+        ? [
+            ...(temPda21
+              ? [
+                  {
+                    type: 'document' as const,
+                    source: {
+                      type: 'base64' as const,
+                      media_type: 'application/pdf' as const,
+                      data: pda21!,
+                    },
+                  },
+                ]
+              : []),
+            ...(temImagens
+              ? imagens!.map((img) => ({
+                  type: 'image' as const,
+                  source: {
+                    type: 'base64' as const,
+                    media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                    data: img.data,
+                  },
+                }))
+              : []),
+            { type: 'text' as const, text: textoUsuario },
+          ]
+        : textoUsuario
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

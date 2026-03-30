@@ -1,21 +1,25 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
 
 interface ImagemCarregada {
-  previewUrl: string  // data URL completo para <img src>
-  base64: string      // apenas os dados (após a vírgula)
-  mediaType: string   // sempre image/jpeg após compressão
+  previewUrl: string
+  base64: string
+  mediaType: string
 }
 
 interface Props {
   /** Nome do aluno pré-preenchido (página do plano) */
   nomeAlunoInicial?: string
-  /** Exibe campo de texto para o nome (página avulsa) */
+  /** Exibe campo de texto livre para o nome (página avulsa sem busca) */
   mostrarInputNome?: boolean
+  /** Exibe campo de busca de aluno com autocomplete do Supabase */
+  mostrarAlunoBusca?: boolean
+  /** Exibe botões de seleção de tutora (buscados dinamicamente do Supabase) */
+  mostrarTutora?: boolean
   /** Se fornecido, exibe botão "Salvar Análise" no Supabase (tabela planos) */
   planoId?: string
   /** Análise já salva anteriormente */
@@ -25,19 +29,40 @@ interface Props {
 }
 
 const MAX_IMAGENS = 6
-const MAX_DIM = 800       // px — dimensão máxima após redimensionamento
-const QUALIDADE = 0.7     // qualidade JPEG
-const MAX_PAYLOAD_MB = 4  // limite total do payload
+const MAX_DIM = 800
+const QUALIDADE = 0.7
+const MAX_PAYLOAD_MB = 4
+
+/** Extrai o texto da seção "Principal Objetivo na Mentoria" do markdown do plano */
+function extrairObjetivoDePlano(conteudo: string): string | null {
+  const linhas = conteudo.split('\n')
+  let dentro = false
+  const trechos: string[] = []
+  for (const linha of linhas) {
+    if (linha.startsWith('## Principal Objetivo na Mentoria')) {
+      dentro = true
+      continue
+    }
+    if (dentro) {
+      if (linha.startsWith('## ')) break
+      if (linha.trim()) trechos.push(linha.trim())
+    }
+  }
+  return trechos.join(' ').trim() || null
+}
 
 export default function AnaliseInstagramForm({
   nomeAlunoInicial = '',
   mostrarInputNome = false,
+  mostrarAlunoBusca = false,
+  mostrarTutora = false,
   planoId,
   analiseExistente,
   mostrarBotaoPublico = false,
 }: Props) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [nomeAluno, setNomeAluno] = useState(nomeAlunoInicial)
   const [imagens, setImagens] = useState<ImagemCarregada[]>([])
@@ -48,12 +73,82 @@ export default function AnaliseInstagramForm({
   const [erro, setErro] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
   const [sucesso, setSucesso] = useState(false)
-
   const [salvandoPublico, setSalvandoPublico] = useState(false)
   const [idPublico, setIdPublico] = useState<string | null>(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
 
-  // ── Compressão via canvas ────────────────────────────────────────────────
+  // ── Busca de aluno ─────────────────────────────────────────────────────────
+  const [sugestoesAluno, setSugestoesAluno] = useState<string[]>([])
+  const [mostrarDropdownAluno, setMostrarDropdownAluno] = useState(false)
+  const [planoIdSelecionado, setPlanoIdSelecionado] = useState<string | null>(null)
+  const [objetivoAluno, setObjetivoAluno] = useState<string | null>(null)
+
+  function onChangeNomeAluno(valor: string) {
+    setNomeAluno(valor)
+    setPlanoIdSelecionado(null)
+    setObjetivoAluno(null)
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (!valor.trim()) {
+      setSugestoesAluno([])
+      setMostrarDropdownAluno(false)
+      return
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('planos')
+        .select('nome_aluno')
+        .ilike('nome_aluno', `%${valor}%`)
+        .order('nome_aluno')
+        .limit(8)
+      const nomes = [...new Set((data ?? []).map((p) => p.nome_aluno as string))]
+      setSugestoesAluno(nomes)
+      setMostrarDropdownAluno(nomes.length > 0)
+    }, 300)
+  }
+
+  async function selecionarAluno(nome: string) {
+    setNomeAluno(nome)
+    setSugestoesAluno([])
+    setMostrarDropdownAluno(false)
+
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('planos')
+      .select('id, conteudo')
+      .eq('nome_aluno', nome)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (data) {
+      setPlanoIdSelecionado(data.id)
+      const obj = extrairObjetivoDePlano(data.conteudo)
+      if (obj) setObjetivoAluno(obj)
+    }
+  }
+
+  // ── Tutoras dinâmicas ──────────────────────────────────────────────────────
+  const [tutoras, setTutoras] = useState<string[]>([])
+  const [tutoraSelecionada, setTutoraSelecionada] = useState('')
+
+  useEffect(() => {
+    if (!mostrarTutora) return
+    const supabase = createClient()
+    supabase
+      .from('planos')
+      .select('tutora')
+      .not('tutora', 'is', null)
+      .order('tutora')
+      .then(({ data }) => {
+        const lista = [...new Set((data ?? []).map((p) => p.tutora as string))]
+        setTutoras(lista)
+      })
+  }, [mostrarTutora])
+
+  // ── Compressão de imagens ──────────────────────────────────────────────────
 
   function comprimirImagem(file: File): Promise<ImagemCarregada> {
     return new Promise((resolve) => {
@@ -86,8 +181,6 @@ export default function AnaliseInstagramForm({
     })
   }
 
-  // ── Carregamento de imagens ──────────────────────────────────────────────
-
   async function processarArquivos(files: FileList | File[]) {
     const lista = Array.from(files).filter((f) => f.type.startsWith('image/'))
     const vagas = MAX_IMAGENS - imagens.length
@@ -98,13 +191,12 @@ export default function AnaliseInstagramForm({
       novas.push(await comprimirImagem(file))
     }
 
-    // Valida tamanho total do payload (base64 → ~0.75x bytes reais)
     const todasImagens = [...imagens, ...novas]
     const totalBytes = todasImagens.reduce((sum, img) => sum + img.base64.length * 0.75, 0)
     if (totalBytes > MAX_PAYLOAD_MB * 1024 * 1024) {
       setErro(
         `As imagens somam ${(totalBytes / 1024 / 1024).toFixed(1)} MB comprimidas. ` +
-        `Limite: ${MAX_PAYLOAD_MB} MB. Reduza o número de imagens.`
+          `Limite: ${MAX_PAYLOAD_MB} MB. Reduza o número de imagens.`
       )
       return
     }
@@ -123,7 +215,7 @@ export default function AnaliseInstagramForm({
     processarArquivos(e.dataTransfer.files)
   }
 
-  // ── Análise ──────────────────────────────────────────────────────────────
+  // ── Análise ────────────────────────────────────────────────────────────────
 
   async function handleAnalisar() {
     if (!nomeAluno.trim()) {
@@ -147,6 +239,7 @@ export default function AnaliseInstagramForm({
         body: JSON.stringify({
           nomeAluno,
           imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
+          ...(objetivoAluno && { objetivoAluno }),
         }),
       })
 
@@ -158,7 +251,6 @@ export default function AnaliseInstagramForm({
       const { analise: resultado } = await res.json()
       setAnalise(resultado)
 
-      // Na página avulsa (/analise-instagram), salva automaticamente em analises_instagram
       if (mostrarBotaoPublico) {
         await salvarNaTabela(resultado)
       }
@@ -169,12 +261,14 @@ export default function AnaliseInstagramForm({
     }
   }
 
-  // ── Salvar em analises_instagram (chamado automaticamente na página avulsa) ─
+  // ── Salvar em analises_instagram ───────────────────────────────────────────
 
   async function salvarNaTabela(conteudoAnalise: string) {
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
       const { data, error } = await supabase
         .from('analises_instagram')
@@ -182,6 +276,8 @@ export default function AnaliseInstagramForm({
           nome_aluno: nomeAluno || null,
           conteudo: conteudoAnalise,
           criado_por: user?.id ?? null,
+          ...(tutoraSelecionada && { tutora: tutoraSelecionada }),
+          ...(planoIdSelecionado && { plano_id: planoIdSelecionado }),
         })
         .select('id')
         .single()
@@ -194,7 +290,7 @@ export default function AnaliseInstagramForm({
     }
   }
 
-  // ── Salvar no Supabase ───────────────────────────────────────────────────
+  // ── Salvar no plano (planoId fornecido) ────────────────────────────────────
 
   async function handleSalvar() {
     if (!analise || !planoId) return
@@ -218,7 +314,7 @@ export default function AnaliseInstagramForm({
     }
   }
 
-  // ── Copiar ───────────────────────────────────────────────────────────────
+  // ── Copiar ─────────────────────────────────────────────────────────────────
 
   async function handleCopiar() {
     if (!analise) return
@@ -227,7 +323,7 @@ export default function AnaliseInstagramForm({
     setTimeout(() => setCopiado(false), 2000)
   }
 
-  // ── Salvar como link público ──────────────────────────────────────────────
+  // ── Salvar como link público ───────────────────────────────────────────────
 
   async function handleSalvarPublico() {
     if (!analise) return
@@ -236,7 +332,9 @@ export default function AnaliseInstagramForm({
 
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
       const { data, error } = await supabase
         .from('analises_instagram')
@@ -244,6 +342,8 @@ export default function AnaliseInstagramForm({
           nome_aluno: nomeAluno || null,
           conteudo: analise,
           criado_por: user?.id ?? null,
+          ...(tutoraSelecionada && { tutora: tutoraSelecionada }),
+          ...(planoIdSelecionado && { plano_id: planoIdSelecionado }),
         })
         .select('id')
         .single()
@@ -272,11 +372,49 @@ export default function AnaliseInstagramForm({
     setTimeout(() => setLinkCopiado(false), 2000)
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
-      {/* Nome do aluno (apenas na página avulsa) */}
+
+      {/* Campo Aluno com busca (página avulsa) */}
+      {mostrarAlunoBusca && (
+        <div className="relative">
+          <label className="block text-sm font-medium text-petroleo mb-1.5">
+            Aluno / Perfil analisado *
+          </label>
+          <input
+            type="text"
+            value={nomeAluno}
+            onChange={(e) => onChangeNomeAluno(e.target.value)}
+            onFocus={() => sugestoesAluno.length > 0 && setMostrarDropdownAluno(true)}
+            onBlur={() => setTimeout(() => setMostrarDropdownAluno(false), 150)}
+            placeholder="Digite para buscar ou escreva um nome..."
+            className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm"
+          />
+          {mostrarDropdownAluno && (
+            <ul className="absolute z-10 mt-1 w-full bg-white border border-creme-dark rounded-xl shadow-lg overflow-hidden">
+              {sugestoesAluno.map((nome) => (
+                <li
+                  key={nome}
+                  onMouseDown={() => selecionarAluno(nome)}
+                  className="px-4 py-2.5 text-sm text-petroleo hover:bg-offwhite cursor-pointer transition-colors"
+                >
+                  {nome}
+                </li>
+              ))}
+            </ul>
+          )}
+          {objetivoAluno && (
+            <p className="mt-1.5 text-xs text-petroleo/50 bg-creme/40 px-3 py-2 rounded-lg border border-creme">
+              <span className="font-medium text-petroleo/70">Objetivo na mentoria:</span>{' '}
+              {objetivoAluno}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Nome do aluno (campo de texto livre — página do plano) */}
       {mostrarInputNome && (
         <div>
           <label className="block text-sm font-medium text-petroleo mb-1.5">
@@ -292,7 +430,36 @@ export default function AnaliseInstagramForm({
         </div>
       )}
 
-      {/* Zona de upload */}
+      {/* Tutora — botões dinâmicos */}
+      {mostrarTutora && (
+        <div>
+          <label className="block text-sm font-medium text-petroleo mb-2">
+            Tutora
+          </label>
+          {tutoras.length === 0 ? (
+            <p className="text-xs text-petroleo/40">Carregando tutoras...</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tutoras.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTutoraSelecionada(tutoraSelecionada === t ? '' : t)}
+                  className={`px-4 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                    tutoraSelecionada === t
+                      ? 'bg-petroleo text-creme border-petroleo'
+                      : 'border-petroleo/30 text-petroleo hover:bg-offwhite'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Zona de upload de imagens */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-petroleo">
@@ -438,7 +605,7 @@ export default function AnaliseInstagramForm({
             </div>
           )}
 
-          {/* Link público (página avulsa) — disponível após salvar automaticamente */}
+          {/* Link público (página avulsa) */}
           {mostrarBotaoPublico && idPublico && (
             <div className="mt-4 pt-4 border-t border-creme">
               <div className="flex items-center gap-3">

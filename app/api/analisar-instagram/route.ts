@@ -23,7 +23,11 @@ interface ImagemInput {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { nomeAluno, imagens } = body as { nomeAluno: string; imagens: ImagemInput[] }
+    const { nomeAluno, imagens, objetivoAluno } = body as {
+      nomeAluno: string
+      imagens: ImagemInput[]
+      objetivoAluno?: string
+    }
 
     if (!nomeAluno?.trim()) {
       return Response.json({ error: 'Campo obrigatório: nomeAluno.' }, { status: 400 })
@@ -52,7 +56,14 @@ export async function POST(request: Request) {
             ...imageBlocks,
             {
               type: 'text',
-              text: `Analise os prints do Instagram do(a) aluno(a) / perfil "${nomeAluno}" e gere o relatório estratégico completo.`,
+              text: [
+                objetivoAluno
+                  ? `CONTEXTO DO ALUNO: O objetivo principal deste aluno na mentoria é: ${objetivoAluno}. Use este contexto para personalizar as recomendações conectando-as com esse objetivo.\n`
+                  : '',
+                `Analise os prints do Instagram do(a) aluno(a) / perfil "${nomeAluno}" e gere o relatório estratégico completo.`,
+              ]
+                .filter(Boolean)
+                .join('\n'),
             },
           ],
         },

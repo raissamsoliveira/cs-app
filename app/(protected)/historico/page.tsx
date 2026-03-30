@@ -13,7 +13,7 @@ export default async function HistoricoPage() {
       .order('created_at', { ascending: false }),
     supabase
       .from('analises_instagram')
-      .select('id, created_at, nome_aluno, conteudo')
+      .select('id, created_at, nome_aluno, conteudo, tutora')
       .order('created_at', { ascending: false }),
     supabase.from('planos').select('tutora').order('tutora'),
   ])
@@ -34,7 +34,7 @@ export default async function HistoricoPage() {
     tipo: 'analise',
     created_at: a.created_at,
     nome: a.nome_aluno ?? '—',
-    tutora: null,
+    tutora: a.tutora ?? null,
     preview: a.conteudo.slice(0, 80),
   }))
 
