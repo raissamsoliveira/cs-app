@@ -12,7 +12,11 @@
       "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/plano/[id]/page.tsx\")",
       "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/historico/page.tsx\")",
       "Bash(cat \"C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\(protected\\)/historico/FiltrosHistorico.tsx\")",
-      "Bash(ls C:/Users/raiss/primus-cs-app/primus-cs-app/.env*)"
+      "Bash(ls C:/Users/raiss/primus-cs-app/primus-cs-app/.env*)",
+      "Bash(ls C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\\\\\(protected\\\\\\)/)",
+      "Bash(ls C:/Users/raiss/primus-cs-app/primus-cs-app/app/\\\\\\(public\\\\\\)/)",
+      "Bash(node -e \"require\\(''''@supabase/supabase-js''''\\)\")",
+      "Bash(curl:*)"
     ]
   }
 }

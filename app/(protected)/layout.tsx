@@ -22,9 +22,13 @@ export default async function ProtectedLayout({
     redirect('/login')
   }
 
+  const hasApiAccess =
+    user.app_metadata?.role === 'api_access' ||
+    user.user_metadata?.role === 'api_access'
+
   return (
     <div className="min-h-screen flex flex-col">
-      <Navbar user={user} />
+      <Navbar user={user} hasApiAccess={hasApiAccess} />
       <main className="flex-1 animate-fade-in">
         {children}
       </main>

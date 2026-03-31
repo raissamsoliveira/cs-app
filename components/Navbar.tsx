@@ -7,16 +7,20 @@ import type { User } from '@supabase/supabase-js'
 
 interface NavbarProps {
   user: User
+  hasApiAccess?: boolean
 }
 
-const links = [
+const baseLinks = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/novo-plano', label: 'Novo Plano' },
   { href: '/historico', label: 'Histórico' },
   { href: '/analise-instagram', label: '📷 Instagram' },
 ]
 
-export default function Navbar({ user }: NavbarProps) {
+export default function Navbar({ user, hasApiAccess = false }: NavbarProps) {
+  const links = hasApiAccess
+    ? [...baseLinks, { href: '/minha-api', label: '🔑 API Key' }]
+    : baseLinks
   const pathname = usePathname()
   const router = useRouter()
 
