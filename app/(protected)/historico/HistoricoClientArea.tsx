@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 
 type Tipo = 'plano' | 'analise'
@@ -23,6 +23,37 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
   const [busca, setBusca] = useState('')
   const [filtraTipo, setFiltraTipo] = useState<Tipo | ''>('')
   const [filtraTutora, setFiltraTutora] = useState('')
+
+  // Mapa de alunos da planilha: nomeNormalizado → aluno
+  const [alunosMap, setAlunosMap] = useState<Map<string, Record<string, string>>>(new Map())
+
+  useEffect(() => {
+    fetch('/api/alunos')
+      .then((r) => r.json())
+      .then(({ alunos }: { alunos: Record<string, string>[] }) => {
+        const map = new Map<string, Record<string, string>>()
+        for (const a of alunos ?? []) {
+          const nome = (a['Nome completo'] ?? '').toLowerCase().trim()
+          if (nome) map.set(nome, a)
+        }
+        setAlunosMap(map)
+      })
+      .catch(() => {/* falha silenciosa */})
+  }, [])
+
+  function getIg(nome: string): string {
+    const aluno = alunosMap.get(nome.toLowerCase().trim())
+    if (!aluno) return ''
+    const key = Object.keys(aluno).find((k) =>
+      k.startsWith('Qual seu instagram ou linkedin')
+    )
+    return key ? aluno[key] : ''
+  }
+
+  function getTelefone(nome: string): string {
+    const aluno = alunosMap.get(nome.toLowerCase().trim())
+    return aluno?.['Telefone com DDD'] ?? ''
+  }
 
   const lista = useMemo(() => {
     return todos.filter((item) => {
@@ -128,67 +159,91 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-petroleo text-creme">
-                <th className="text-left px-5 py-3.5 font-medium">Nome / Perfil</th>
+                <th className="text-left px-5 py-3.5 font-medium">Nome / Perfil IG</th>
                 <th className="text-left px-5 py-3.5 font-medium hidden sm:table-cell">Tipo</th>
                 <th className="text-left px-5 py-3.5 font-medium hidden md:table-cell">Tutora</th>
                 <th className="text-left px-5 py-3.5 font-medium hidden md:table-cell">Data</th>
-                <th className="text-left px-5 py-3.5 font-medium hidden lg:table-cell">Prévia</th>
+                <th className="text-left px-5 py-3.5 font-medium hidden lg:table-cell">Telefone</th>
                 <th className="text-right px-5 py-3.5 font-medium">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-creme/50">
-              {lista.map((item) => (
-                <tr
-                  key={`${item.tipo}-${item.id}`}
-                  className="hover:bg-offwhite/60 transition-colors"
-                >
-                  <td className="px-5 py-4 font-medium text-petroleo">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-creme flex items-center justify-center text-petroleo text-xs font-bold shrink-0">
-                        {item.nome.charAt(0).toUpperCase()}
+              {lista.map((item) => {
+                const ig = getIg(item.nome)
+                const telefone = getTelefone(item.nome)
+                const igEhLink = ig && (ig.startsWith('@') || ig.startsWith('http'))
+
+                return (
+                  <tr
+                    key={`${item.tipo}-${item.id}`}
+                    className="hover:bg-offwhite/60 transition-colors"
+                  >
+                    <td className="px-5 py-4 font-medium text-petroleo">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-creme flex items-center justify-center text-petroleo text-xs font-bold shrink-0">
+                          {item.nome.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <span className="truncate block max-w-[140px]">{item.nome}</span>
+                          {ig && (
+                            igEhLink ? (
+                              <a
+                                href={ig.startsWith('@') ? `https://instagram.com/${ig.replace('@', '')}` : ig}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-petroleo/50 hover:text-petroleo truncate block max-w-[140px] underline"
+                              >
+                                {ig}
+                              </a>
+                            ) : (
+                              <span className="text-xs text-petroleo/40 truncate block max-w-[140px]">
+                                {ig}
+                              </span>
+                            )
+                          )}
+                        </div>
                       </div>
-                      <span className="truncate max-w-[140px]">{item.nome}</span>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td className="px-5 py-4 hidden sm:table-cell">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
-                        item.tipo === 'plano'
-                          ? 'bg-petroleo/10 text-petroleo'
-                          : 'bg-creme text-petroleo/70'
-                      }`}
-                    >
-                      {item.tipo === 'plano' ? 'Plano de Ação' : 'Análise Instagram'}
-                    </span>
-                  </td>
+                    <td className="px-5 py-4 hidden sm:table-cell">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
+                          item.tipo === 'plano'
+                            ? 'bg-petroleo/10 text-petroleo'
+                            : 'bg-creme text-petroleo/70'
+                        }`}
+                      >
+                        {item.tipo === 'plano' ? 'Plano de Ação' : 'Análise Instagram'}
+                      </span>
+                    </td>
 
-                  <td className="px-5 py-4 text-petroleo/60 hidden md:table-cell">
-                    {item.tutora ?? <span className="text-petroleo/30">—</span>}
-                  </td>
+                    <td className="px-5 py-4 text-petroleo/60 hidden md:table-cell">
+                      {item.tutora ?? <span className="text-petroleo/30">—</span>}
+                    </td>
 
-                  <td className="px-5 py-4 text-petroleo/60 hidden md:table-cell whitespace-nowrap">
-                    {new Date(item.created_at).toLocaleDateString('pt-BR')}
-                  </td>
+                    <td className="px-5 py-4 text-petroleo/60 hidden md:table-cell whitespace-nowrap">
+                      {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                    </td>
 
-                  <td className="px-5 py-4 text-petroleo/50 hidden lg:table-cell">
-                    <span className="truncate block max-w-[240px]">{item.preview}…</span>
-                  </td>
+                    <td className="px-5 py-4 text-petroleo/60 hidden lg:table-cell whitespace-nowrap">
+                      {telefone || <span className="text-petroleo/30">—</span>}
+                    </td>
 
-                  <td className="px-5 py-4 text-right">
-                    <Link
-                      href={
-                        item.tipo === 'plano'
-                          ? `/plano/${item.id}`
-                          : `/analise/${item.id}`
-                      }
-                      className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
-                    >
-                      {item.tipo === 'plano' ? 'Ver plano' : 'Ver análise'}
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-5 py-4 text-right">
+                      <Link
+                        href={
+                          item.tipo === 'plano'
+                            ? `/plano/${item.id}`
+                            : `/analise/${item.id}`
+                        }
+                        className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
+                      >
+                        {item.tipo === 'plano' ? 'Ver plano' : 'Ver análise'}
+                      </Link>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

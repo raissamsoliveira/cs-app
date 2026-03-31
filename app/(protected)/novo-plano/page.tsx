@@ -4,23 +4,131 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
+import BuscaAluno from '@/components/BuscaAluno'
 
-type Aba = 'texto-bruto' | 'campos'
+type AbaAluno = 'identificacao' | 'negocio' | 'comunicacao' | 'conteudo'
 
-/**
- * Novo Plano — formulário com duas abas para geração de planos de ação.
- * Aba 1: Colar texto bruto sobre o aluno.
- * Aba 2: Preencher campos estruturados.
- */
+// ── Campos por aba do painel "Dados do Aluno" ────────────────────────────────
+
+const TABS_DADOS: Record<AbaAluno, { label: string; key: string }[]> = {
+  identificacao: [
+    { label: 'Nome completo', key: 'Nome completo' },
+    { label: 'E-mail', key: 'E-mail utilizado na compra da mentoria:' },
+    { label: 'Telefone', key: 'Telefone com DDD' },
+    { label: 'Data de Nascimento', key: 'Data de Nascimento' },
+    { label: 'Endereço', key: 'Endereço completo com CEP' },
+    { label: 'Instagram / LinkedIn', key: 'Qual seu instagram ou linkedin? Se tiver os dois, coloque os dois.' },
+  ],
+  negocio: [
+    { label: 'Profissão', key: 'Qual sua profissão atual?' },
+    { label: 'Área de atuação', key: 'Área de atuação:' },
+    { label: 'Trabalha atualmente', key: 'Você trabalha atualmente?' },
+    { label: 'Faturamento atual', key: 'Faturmento médio mensal atual:' },
+    { label: 'Faturamento desejado', key: 'Faturamento médio mensal desejado após o ciclo da mentoria:' },
+    { label: 'Obstáculo principal', key: 'Qual seu maior obstáculo para alcançar esse objetivo?' },
+  ],
+  comunicacao: [
+    { label: 'Falar em público', key: 'Como você se sente ao falar em público?' },
+    { label: 'Já faz palestras', key: 'Você já realiza palestras, aulas ou apresentações?' },
+    { label: 'Em reuniões', key: 'Em reuniões profissionais, você costuma:' },
+    { label: 'Bloqueio', key: 'O que te bloqueia ao se comunicar?' },
+    { label: 'Persuasão', key: 'Você se considera persuasivo(a)?' },
+    { label: 'Onde quer melhorar', key: 'Em qual situação você quer melhorar sua persuação?' },
+  ],
+  conteudo: [
+    { label: 'Cria conteúdo', key: 'Você cria conteúdo nas redes sociais atualmente?' },
+    { label: 'Frequência', key: 'Frequência de publicação:' },
+    { label: 'Objetivo rede social', key: 'Qual seu maior objetivo com sua rede social hoje?' },
+    { label: 'Seguidores Instagram', key: 'Quantos seguidores você tem no Instagram hoje?' },
+    { label: 'Gera vendas pelo IG', key: 'Você gera vendas ou agendamentos pelo seu Instagram hoje?' },
+    { label: 'Dificuldade conteúdo', key: 'Maior dificuldade ao criar conteúdo:' },
+    { label: 'Usa IA', key: 'Já usou IA para criar conteúdo?' },
+    { label: 'Produto digital', key: 'Você já tem algum produto digital?' },
+    { label: 'Rede de contatos', key: 'Como está sua rede de contatos hoje?' },
+    { label: 'Objetivo networking', key: 'Qual seu principal objetivo com networking?' },
+    { label: 'Preferência conexões', key: 'Prefere conexões:' },
+    { label: 'Meta 2 meses', key: 'Qual sua principal meta para os próximos 2 meses?' },
+    { label: 'Meta 6 meses', key: 'Qual sua principal meta para os próximos 6 meses?' },
+    { label: 'Palavra-chave', key: 'Em uma palavra, o que você mais deseja transformar em sua vida profissional com esta mentoria?' },
+    { label: 'Comprometimento (0-10)', key: 'Em uma escala de 0 a 10, qual seu comprometimento em aplicar o que aprenderá?' },
+    { label: 'O que motivou entrar na Primus', key: 'O que te motivou a entrar na Mentoria Primus?' },
+    { label: 'O que precisa acontecer após o ciclo', key: 'O que precisa ter acontecido na sua vida após o ciclo da mentoria para você sentir que o investimento foi válido?' },
+  ],
+}
+
+const TABS_LABELS: { key: AbaAluno; label: string }[] = [
+  { key: 'identificacao', label: 'Identificação' },
+  { key: 'negocio', label: 'Negócio' },
+  { key: 'comunicacao', label: 'Comunicação' },
+  { key: 'conteudo', label: 'Conteúdo & Metas' },
+]
+
+// ── Builder do contexto para a IA ────────────────────────────────────────────
+
+function buildAlunoContext(aluno: Record<string, string>): string {
+  const v = (key: string) => {
+    // Tenta chave exata; depois tenta por prefixo (para o campo de instagram)
+    const val = aluno[key] ?? Object.values(
+      Object.fromEntries(
+        Object.entries(aluno).filter(([k]) => k.startsWith(key.slice(0, 30)))
+      )
+    )[0] ?? ''
+    return val.trim() || 'Não informado'
+  }
+
+  return `=== DADOS DO ALUNO ===
+Nome: ${v('Nome completo')}
+Profissão: ${v('Qual sua profissão atual?')}
+Área: ${v('Área de atuação:')}
+Faturamento atual: ${v('Faturmento médio mensal atual:')}
+Faturamento desejado: ${v('Faturamento médio mensal desejado após o ciclo da mentoria:')}
+Obstáculo principal: ${v('Qual seu maior obstáculo para alcançar esse objetivo?')}
+Instagram/LinkedIn: ${v('Qual seu instagram ou linkedin? Se tiver os dois, coloque os dois.')}
+
+=== COMUNICAÇÃO ===
+Falar em público: ${v('Como você se sente ao falar em público?')}
+Já faz palestras: ${v('Você já realiza palestras, aulas ou apresentações?')}
+Em reuniões: ${v('Em reuniões profissionais, você costuma:')}
+Bloqueio na comunicação: ${v('O que te bloqueia ao se comunicar?')}
+Persuasão: ${v('Você se considera persuasivo(a)?')}
+Onde quer melhorar: ${v('Em qual situação você quer melhorar sua persuação?')}
+
+=== CONTEÚDO & REDE ===
+Cria conteúdo: ${v('Você cria conteúdo nas redes sociais atualmente?')}
+Frequência: ${v('Frequência de publicação:')}
+Objetivo com rede social: ${v('Qual seu maior objetivo com sua rede social hoje?')}
+Seguidores Instagram: ${v('Quantos seguidores você tem no Instagram hoje?')}
+Gera vendas pelo Instagram: ${v('Você gera vendas ou agendamentos pelo seu Instagram hoje?')}
+Dificuldade em criar conteúdo: ${v('Maior dificuldade ao criar conteúdo:')}
+Usa IA para conteúdo: ${v('Já usou IA para criar conteúdo?')}
+Tem produto digital: ${v('Você já tem algum produto digital?')}
+Rede de contatos: ${v('Como está sua rede de contatos hoje?')}
+Objetivo networking: ${v('Qual seu principal objetivo com networking?')}
+
+=== METAS ===
+Meta 2 meses: ${v('Qual sua principal meta para os próximos 2 meses?')}
+Meta 6 meses: ${v('Qual sua principal meta para os próximos 6 meses?')}
+Palavra-chave transformação: ${v('Em uma palavra, o que você mais deseja transformar em sua vida profissional com esta mentoria?')}
+Comprometimento (0-10): ${v('Em uma escala de 0 a 10, qual seu comprometimento em aplicar o que aprenderá?')}
+O que motivou entrar na Primus: ${v('O que te motivou a entrar na Mentoria Primus?')}
+O que precisa acontecer após o ciclo: ${v('O que precisa ter acontecido na sua vida após o ciclo da mentoria para você sentir que o investimento foi válido?')}`
+}
+
+// ── Componente principal ─────────────────────────────────────────────────────
+
 export default function NovoPlanoPage() {
   const router = useRouter()
-
-  const [aba, setAba] = useState<Aba>('texto-bruto')
 
   // Campos comuns
   const [nomeAluno, setNomeAluno] = useState('')
   const [tutora, setTutora] = useState('')
   const [tutoras, setTutoras] = useState<string[]>([])
+
+  // Aluno selecionado da planilha
+  const [alunoSelecionado, setAlunoSelecionado] = useState<Record<string, string> | null>(null)
+  const [contextoAluno, setContextoAluno] = useState('')
+  const [painelAberto, setPainelAberto] = useState(true)
+  const [abaAluno, setAbaAluno] = useState<AbaAluno>('identificacao')
 
   useEffect(() => {
     const supabase = createClient()
@@ -35,15 +143,8 @@ export default function NovoPlanoPage() {
       })
   }, [])
 
-  // Aba 1: texto bruto
+  // Contexto adicional
   const [textoBruto, setTextoBruto] = useState('')
-
-  // Aba 2: campos estruturados
-  const [objetivo, setObjetivo] = useState('')
-  const [desafios, setDesafios] = useState('')
-  const [background, setBackground] = useState('')
-  const [areaAtuacao, setAreaAtuacao] = useState('')
-  const [observacoes, setObservacoes] = useState('')
 
   // PDA21 — PDF opcional
   const [pda21Base64, setPda21Base64] = useState<string | null>(null)
@@ -61,6 +162,15 @@ export default function NovoPlanoPage() {
   const [mensagem, setMensagem] = useState<string | null>(null)
   const [notionUrl, setNotionUrl] = useState<string | null>(null)
 
+  // ── Handler BuscaAluno ────────────────────────────────────────────────────
+
+  function handleSelecionarAluno(aluno: Record<string, string>) {
+    setAlunoSelecionado(aluno)
+    setNomeAluno(aluno['Nome completo'] ?? '')
+    setContextoAluno(buildAlunoContext(aluno))
+    setPainelAberto(true)
+  }
+
   // ── Handler PDA21 ──────────────────────────────────────────────────────────
 
   function handlePda21Change(e: React.ChangeEvent<HTMLInputElement>) {
@@ -73,7 +183,6 @@ export default function NovoPlanoPage() {
       setNomePda21(file.name)
     }
     reader.readAsDataURL(file)
-    // Limpa o input para permitir re-seleção do mesmo arquivo
     e.target.value = ''
   }
 
@@ -96,27 +205,17 @@ export default function NovoPlanoPage() {
     setMensagem(null)
     setNotionUrl(null)
 
-    // Monta o contexto conforme a aba ativa
-    let contexto = ''
-    if (aba === 'texto-bruto') {
-      if (!textoBruto.trim()) {
-        setErro('Cole algum texto sobre o aluno antes de gerar.')
-        setGerando(false)
-        return
-      }
-      contexto = `INFORMAÇÕES DO ALUNO (texto bruto):\n${textoBruto}`
-    } else {
-      contexto = [
-        `Nome: ${nomeAluno}`,
-        `Tutora: ${tutora}`,
-        objetivo && `Objetivo principal: ${objetivo}`,
-        desafios && `Principais desafios: ${desafios}`,
-        background && `Background: ${background}`,
-        areaAtuacao && `Área de atuação: ${areaAtuacao}`,
-        observacoes && `Observações: ${observacoes}`,
-      ]
-        .filter(Boolean)
-        .join('\n')
+    // Monta o contexto: dados da planilha + contexto adicional
+    let contexto = contextoAluno ? contextoAluno + '\n\n' : ''
+
+    if (!textoBruto.trim() && !contextoAluno) {
+      setErro('Selecione um aluno da planilha ou cole algum contexto antes de gerar.')
+      setGerando(false)
+      return
+    }
+
+    if (textoBruto.trim()) {
+      contexto += `INFORMAÇÕES ADICIONAIS:\n${textoBruto}`
     }
 
     try {
@@ -151,7 +250,6 @@ export default function NovoPlanoPage() {
     setMensagem(null)
     setErro(null)
 
-    // Cliente criado dentro do handler para não executar durante SSR
     const supabase = createClient()
     const {
       data: { user },
@@ -200,6 +298,8 @@ export default function NovoPlanoPage() {
     }
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Título */}
@@ -222,12 +322,9 @@ export default function NovoPlanoPage() {
             <label className="block text-sm font-medium text-petroleo mb-1.5">
               Nome do Aluno *
             </label>
-            <input
-              type="text"
-              value={nomeAluno}
-              onChange={(e) => setNomeAluno(e.target.value)}
-              placeholder="Ex: João Silva"
-              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition"
+            <BuscaAluno
+              onSelect={handleSelecionarAluno}
+              placeholder="Buscar aluno pelo nome..."
             />
           </div>
           <div>
@@ -248,81 +345,93 @@ export default function NovoPlanoPage() {
         </div>
       </div>
 
-      {/* Abas */}
-      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
-        {/* Seletor de aba */}
-        <div className="flex gap-1 mb-6 bg-offwhite p-1 rounded-xl">
+      {/* Painel "Dados do Aluno" — exibido após seleção na planilha */}
+      {alunoSelecionado && (
+        <div className="bg-white rounded-2xl shadow-sm border border-creme mb-6 overflow-hidden">
+          {/* Cabeçalho colapsável */}
           <button
-            onClick={() => setAba('texto-bruto')}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-              aba === 'texto-bruto'
-                ? 'bg-petroleo text-creme'
-                : 'text-petroleo/60 hover:text-petroleo'
-            }`}
+            onClick={() => setPainelAberto((v) => !v)}
+            className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-offwhite/50 transition-colors"
           >
-            Colar Texto Bruto
+            <span className="font-playfair text-lg text-petroleo font-semibold">
+              Dados do aluno
+            </span>
+            <span className="text-petroleo/50 text-sm">
+              {painelAberto ? '▲ Recolher' : '▼ Expandir'}
+            </span>
           </button>
-          <button
-            onClick={() => setAba('campos')}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-              aba === 'campos'
-                ? 'bg-petroleo text-creme'
-                : 'text-petroleo/60 hover:text-petroleo'
-            }`}
-          >
-            Preencher Campos
-          </button>
-        </div>
 
-        {/* Conteúdo da aba */}
-        {aba === 'texto-bruto' ? (
-          <div>
-            <label className="block text-sm font-medium text-petroleo mb-1.5">
-              Texto com informações do aluno
-            </label>
-            <textarea
-              value={textoBruto}
-              onChange={(e) => setTextoBruto(e.target.value)}
-              rows={10}
-              placeholder="Cole aqui qualquer texto sobre o aluno — diagnóstico, anotações, entrevista, formulário de inscrição, etc."
-              className="w-full px-4 py-3 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition resize-none text-sm leading-relaxed"
-            />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <CampoTexto
-              label="Objetivo Principal na Mentoria"
-              value={objetivo}
-              onChange={setObjetivo}
-              placeholder="Ex: Construir autoridade digital como especialista em marketing criativo"
-            />
-            <CampoTexto
-              label="Principais Desafios"
-              value={desafios}
-              onChange={setDesafios}
-              placeholder="Ex: Dificuldade em falar em público, falta de consistência nas redes sociais"
-            />
-            <CampoTexto
-              label="Background / Experiência"
-              value={background}
-              onChange={setBackground}
-              placeholder="Ex: Designer há 5 anos, trabalha com agências de publicidade"
-            />
-            <CampoTexto
-              label="Área de Atuação"
-              value={areaAtuacao}
-              onChange={setAreaAtuacao}
-              placeholder="Ex: Design, Marketing, Educação, Saúde..."
-            />
-            <CampoTexto
-              label="Observações Adicionais"
-              value={observacoes}
-              onChange={setObservacoes}
-              placeholder="Qualquer informação relevante sobre o aluno"
-              rows={3}
-            />
-          </div>
-        )}
+          {painelAberto && (
+            <div className="px-6 pb-6">
+              {/* Abas */}
+              <div className="flex gap-1 mb-5 bg-offwhite p-1 rounded-xl">
+                {TABS_LABELS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setAbaAluno(key)}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      abaAluno === key
+                        ? 'bg-petroleo text-creme'
+                        : 'text-petroleo/60 hover:text-petroleo'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Campos */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                {TABS_DADOS[abaAluno].map(({ label, key }) => {
+                  const valor = alunoSelecionado[key]?.trim() ||
+                    Object.entries(alunoSelecionado).find(([k]) =>
+                      k.startsWith(key.slice(0, 20))
+                    )?.[1]?.trim() ||
+                    ''
+                  return (
+                    <div key={key} className="border-b border-creme/60 pb-2 last:border-0">
+                      <p className="text-xs font-medium text-petroleo/60 mb-0.5">{label}</p>
+                      <p className={`text-sm ${valor ? 'text-petroleo' : 'text-petroleo/30 italic'}`}>
+                        {valor || 'Não informado'}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Botão secundário — só aparece após selecionar aluno da planilha */}
+      {alunoSelecionado && (
+        <button
+          onClick={handleGerar}
+          disabled={gerando}
+          className="w-full mb-6 py-3 px-6 rounded-xl font-medium text-sm border-2 border-petroleo text-petroleo hover:bg-petroleo hover:text-creme disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+        >
+          {gerando ? '✨ Gerando plano...' : '✨ Gerar plano com dados da planilha'}
+        </button>
+      )}
+
+      {/* Contexto adicional */}
+      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
+        <label className="block text-sm font-medium text-petroleo mb-1">
+          Contexto adicional
+          {alunoSelecionado && (
+            <span className="text-petroleo/40 font-normal ml-1">(opcional)</span>
+          )}
+        </label>
+        <p className="text-xs text-petroleo/50 mb-3">
+          Informações extras sobre o aluno — anotações, observações da tutora, etc.
+        </p>
+        <textarea
+          value={textoBruto}
+          onChange={(e) => setTextoBruto(e.target.value)}
+          rows={8}
+          placeholder="Cole aqui anotações, observações extras ou qualquer contexto adicional sobre o aluno..."
+          className="w-full px-4 py-3 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition resize-none text-sm leading-relaxed"
+        />
       </div>
 
       {/* PDA21 — opcional */}
@@ -397,12 +506,10 @@ export default function NovoPlanoPage() {
             </button>
           </div>
 
-          {/* Conteúdo do plano renderizado com markdown */}
           <div className="border border-offwhite bg-offwhite rounded-xl p-5 max-h-[600px] overflow-y-auto">
             <PlanoMarkdown conteudo={planoGerado} />
           </div>
 
-          {/* Mensagem de feedback */}
           {mensagem && (
             <div className="mt-4 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl">
               {mensagem}
@@ -419,7 +526,6 @@ export default function NovoPlanoPage() {
             </div>
           )}
 
-          {/* Ações */}
           <div className="flex flex-col sm:flex-row gap-3 mt-5">
             <button
               onClick={handleSalvar}
@@ -442,30 +548,3 @@ export default function NovoPlanoPage() {
   )
 }
 
-/* Campo de texto reutilizável */
-function CampoTexto({
-  label,
-  value,
-  onChange,
-  placeholder,
-  rows = 2,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  rows?: number
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-petroleo mb-1.5">{label}</label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={rows}
-        placeholder={placeholder}
-        className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition resize-none text-sm"
-      />
-    </div>
-  )
-}

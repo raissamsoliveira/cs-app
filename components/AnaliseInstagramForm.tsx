@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
+import BuscaAluno from '@/components/BuscaAluno'
 
 interface ImagemCarregada {
   previewUrl: string
@@ -62,7 +63,6 @@ export default function AnaliseInstagramForm({
 }: Props) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [nomeAluno, setNomeAluno] = useState(nomeAlunoInicial)
   const [imagens, setImagens] = useState<ImagemCarregada[]>([])
@@ -77,56 +77,38 @@ export default function AnaliseInstagramForm({
   const [idPublico, setIdPublico] = useState<string | null>(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
 
-  // ── Busca de aluno ─────────────────────────────────────────────────────────
-  const [sugestoesAluno, setSugestoesAluno] = useState<string[]>([])
-  const [mostrarDropdownAluno, setMostrarDropdownAluno] = useState(false)
+  // ── Busca de aluno (via planilha Google Sheets) ────────────────────────────
   const [planoIdSelecionado, setPlanoIdSelecionado] = useState<string | null>(null)
   const [objetivoAluno, setObjetivoAluno] = useState<string | null>(null)
+  const [igAluno, setIgAluno] = useState<string | null>(null)
+  const [igCopiado, setIgCopiado] = useState(false)
 
-  function onChangeNomeAluno(valor: string) {
-    setNomeAluno(valor)
-    setPlanoIdSelecionado(null)
-    setObjetivoAluno(null)
+  async function selecionarAlunoDaPlanilha(aluno: Record<string, string>) {
+    const nome = aluno['Nome completo'] ?? ''
+    setNomeAluno(nome)
 
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!valor.trim()) {
-      setSugestoesAluno([])
-      setMostrarDropdownAluno(false)
-      return
-    }
+    // Extrai instagram/linkedin do aluno da planilha
+    const igKey = Object.keys(aluno).find((k) =>
+      k.startsWith('Qual seu instagram ou linkedin')
+    )
+    setIgAluno(igKey && aluno[igKey] ? aluno[igKey] : null)
 
-    debounceRef.current = setTimeout(async () => {
+    // Busca plano mais recente no Supabase para preencher objetivoAluno
+    if (nome.trim()) {
       const supabase = createClient()
       const { data } = await supabase
         .from('planos')
-        .select('nome_aluno')
-        .ilike('nome_aluno', `%${valor}%`)
-        .order('nome_aluno')
-        .limit(8)
-      const nomes = [...new Set((data ?? []).map((p) => p.nome_aluno as string))]
-      setSugestoesAluno(nomes)
-      setMostrarDropdownAluno(nomes.length > 0)
-    }, 300)
-  }
+        .select('id, conteudo')
+        .eq('nome_aluno', nome)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
 
-  async function selecionarAluno(nome: string) {
-    setNomeAluno(nome)
-    setSugestoesAluno([])
-    setMostrarDropdownAluno(false)
-
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('planos')
-      .select('id, conteudo')
-      .eq('nome_aluno', nome)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    if (data) {
-      setPlanoIdSelecionado(data.id)
-      const obj = extrairObjetivoDePlano(data.conteudo)
-      if (obj) setObjetivoAluno(obj)
+      if (data) {
+        setPlanoIdSelecionado(data.id)
+        const obj = extrairObjetivoDePlano(data.conteudo)
+        if (obj) setObjetivoAluno(obj)
+      }
     }
   }
 
@@ -377,36 +359,43 @@ export default function AnaliseInstagramForm({
   return (
     <div className="space-y-5">
 
-      {/* Campo Aluno com busca (página avulsa) */}
+      {/* Campo Aluno com busca na planilha (página avulsa) */}
       {mostrarAlunoBusca && (
-        <div className="relative">
+        <div className="space-y-2">
           <label className="block text-sm font-medium text-petroleo mb-1.5">
             Aluno / Perfil analisado *
           </label>
-          <input
-            type="text"
-            value={nomeAluno}
-            onChange={(e) => onChangeNomeAluno(e.target.value)}
-            onFocus={() => sugestoesAluno.length > 0 && setMostrarDropdownAluno(true)}
-            onBlur={() => setTimeout(() => setMostrarDropdownAluno(false), 150)}
-            placeholder="Digite para buscar ou escreva um nome..."
-            className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm"
+          <BuscaAluno
+            onSelect={selecionarAlunoDaPlanilha}
+            placeholder="Buscar aluno pelo nome..."
           />
-          {mostrarDropdownAluno && (
-            <ul className="absolute z-10 mt-1 w-full bg-white border border-creme-dark rounded-xl shadow-lg overflow-hidden">
-              {sugestoesAluno.map((nome) => (
-                <li
-                  key={nome}
-                  onMouseDown={() => selecionarAluno(nome)}
-                  className="px-4 py-2.5 text-sm text-petroleo hover:bg-offwhite cursor-pointer transition-colors"
-                >
-                  {nome}
-                </li>
-              ))}
-            </ul>
+
+          {/* Instagram do aluno (preenchido automaticamente) */}
+          {igAluno && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="text"
+                readOnly
+                value={igAluno}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo text-sm cursor-default"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(igAluno)
+                  setIgCopiado(true)
+                  setTimeout(() => setIgCopiado(false), 2000)
+                }}
+                title="Copiar Instagram"
+                className="px-3 py-2.5 rounded-xl border border-creme-dark text-petroleo/60 hover:text-petroleo hover:border-petroleo/30 transition-colors text-sm"
+              >
+                {igCopiado ? '✓' : '📋'}
+              </button>
+            </div>
           )}
+
           {objetivoAluno && (
-            <p className="mt-1.5 text-xs text-petroleo/50 bg-creme/40 px-3 py-2 rounded-lg border border-creme">
+            <p className="text-xs text-petroleo/50 bg-creme/40 px-3 py-2 rounded-lg border border-creme">
               <span className="font-medium text-petroleo/70">Objetivo na mentoria:</span>{' '}
               {objetivoAluno}
             </p>
