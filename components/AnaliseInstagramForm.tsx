@@ -13,28 +13,22 @@ interface ImagemCarregada {
 }
 
 interface Props {
-  /** Nome do aluno pré-preenchido (página do plano) */
   nomeAlunoInicial?: string
-  /** Exibe campo de texto livre para o nome (página avulsa sem busca) */
   mostrarInputNome?: boolean
-  /** Exibe campo de busca de aluno com autocomplete do Supabase */
   mostrarAlunoBusca?: boolean
-  /** Exibe botões de seleção de tutora (buscados dinamicamente do Supabase) */
   mostrarTutora?: boolean
-  /** Se fornecido, exibe botão "Salvar Análise" no Supabase (tabela planos) */
   planoId?: string
-  /** Análise já salva anteriormente */
   analiseExistente?: string | null
-  /** Exibe botão "Salvar e Copiar Link" para gerar link público */
   mostrarBotaoPublico?: boolean
 }
+
+type Modo = 'analise' | 'planejamento'
 
 const MAX_IMAGENS = 6
 const MAX_DIM = 800
 const QUALIDADE = 0.7
 const MAX_PAYLOAD_MB = 4
 
-/** Extrai o texto da seção "Principal Objetivo na Mentoria" do markdown do plano */
 function extrairObjetivoDePlano(conteudo: string): string | null {
   const linhas = conteudo.split('\n')
   let dentro = false
@@ -64,20 +58,32 @@ export default function AnaliseInstagramForm({
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // ── Modo (toggle) ──────────────────────────────────────────────────────────
+  const [modo, setModo] = useState<Modo>('analise')
+
+  // ── Campos comuns ──────────────────────────────────────────────────────────
   const [nomeAluno, setNomeAluno] = useState(nomeAlunoInicial)
-  const [imagens, setImagens] = useState<ImagemCarregada[]>([])
-  const [isDragging, setIsDragging] = useState(false)
+  const [infoAdicionais, setInfoAdicionais] = useState('')
   const [analisando, setAnalisando] = useState(false)
   const [analise, setAnalise] = useState<string | null>(analiseExistente ?? null)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
   const [sucesso, setSucesso] = useState(false)
-  const [salvandoPublico, setSalvandoPublico] = useState(false)
   const [idPublico, setIdPublico] = useState<string | null>(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
 
-  // ── Busca de aluno (via planilha Google Sheets) ────────────────────────────
+  // ── Modo A — imagens ───────────────────────────────────────────────────────
+  const [imagens, setImagens] = useState<ImagemCarregada[]>([])
+  const [isDragging, setIsDragging] = useState(false)
+
+  // ── Modo B — campos de planejamento ───────────────────────────────────────
+  const [nicho, setNicho] = useState('')
+  const [publicoAlvo, setPublicoAlvo] = useState('')
+  const [objetivoRedes, setObjetivoRedes] = useState('')
+  const [referencias, setReferencias] = useState('')
+
+  // ── Busca de aluno ─────────────────────────────────────────────────────────
   const [planoIdSelecionado, setPlanoIdSelecionado] = useState<string | null>(null)
   const [objetivoAluno, setObjetivoAluno] = useState<string | null>(null)
   const [igAluno, setIgAluno] = useState<string | null>(null)
@@ -86,14 +92,11 @@ export default function AnaliseInstagramForm({
   async function selecionarAlunoDaPlanilha(aluno: Record<string, string>) {
     const nome = aluno['Nome completo'] ?? ''
     setNomeAluno(nome)
-
-    // Extrai instagram/linkedin do aluno da planilha
     const igKey = Object.keys(aluno).find((k) =>
       k.startsWith('Qual seu instagram ou linkedin')
     )
     setIgAluno(igKey && aluno[igKey] ? aluno[igKey] : null)
 
-    // Busca plano mais recente no Supabase para preencher objetivoAluno
     if (nome.trim()) {
       const supabase = createClient()
       const { data } = await supabase
@@ -112,10 +115,7 @@ export default function AnaliseInstagramForm({
     }
   }
 
-  // ── Tutoras dinâmicas ──────────────────────────────────────────────────────
-  const [infoAdicionais, setInfoAdicionais] = useState('')
-
-  // ── Tutoras dinâmicas ──────────────────────────────────────────────────────
+  // ── Tutoras ────────────────────────────────────────────────────────────────
   const [tutoras, setTutoras] = useState<string[]>([])
   const [tutoraSelecionada, setTutoraSelecionada] = useState('')
 
@@ -134,7 +134,6 @@ export default function AnaliseInstagramForm({
   }, [mostrarTutora])
 
   // ── Compressão de imagens ──────────────────────────────────────────────────
-
   function comprimirImagem(file: File): Promise<ImagemCarregada> {
     return new Promise((resolve) => {
       const objectUrl = URL.createObjectURL(file)
@@ -200,15 +199,14 @@ export default function AnaliseInstagramForm({
     processarArquivos(e.dataTransfer.files)
   }
 
-  // ── Análise ────────────────────────────────────────────────────────────────
-
+  // ── Análise / Planejamento ─────────────────────────────────────────────────
   async function handleAnalisar() {
     if (!nomeAluno.trim()) {
       setErro('Informe o nome do aluno ou perfil.')
       return
     }
-    if (imagens.length === 0) {
-      setErro('Adicione pelo menos uma imagem.')
+    if (modo === 'planejamento' && !nicho.trim()) {
+      setErro('Informe o nicho de atuação.')
       return
     }
 
@@ -218,15 +216,26 @@ export default function AnaliseInstagramForm({
     setIdPublico(null)
 
     try {
+      const body: Record<string, unknown> = {
+        nomeAluno,
+        ...(objetivoAluno && { objetivoAluno }),
+        ...(infoAdicionais.trim() && { infoAdicionais: infoAdicionais.trim() }),
+      }
+
+      if (modo === 'planejamento') {
+        body.tipo = 'planejamento'
+        body.nicho = nicho.trim()
+        if (publicoAlvo.trim()) body.publicoAlvo = publicoAlvo.trim()
+        if (objetivoRedes.trim()) body.objetivoRedes = objetivoRedes.trim()
+        if (referencias.trim()) body.referencias = referencias.trim()
+      } else {
+        body.imagens = imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType }))
+      }
+
       const res = await fetch('/api/analisar-instagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nomeAluno,
-          imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
-          ...(objetivoAluno && { objetivoAluno }),
-          ...(infoAdicionais.trim() && { infoAdicionais: infoAdicionais.trim() }),
-        }),
+        body: JSON.stringify(body),
       })
 
       if (!res.ok) {
@@ -238,7 +247,7 @@ export default function AnaliseInstagramForm({
       setAnalise(resultado)
 
       if (mostrarBotaoPublico) {
-        await salvarNaTabela(resultado)
+        await salvarNaTabela(resultado, modo)
       }
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao gerar análise.')
@@ -248,8 +257,7 @@ export default function AnaliseInstagramForm({
   }
 
   // ── Salvar em analises_instagram ───────────────────────────────────────────
-
-  async function salvarNaTabela(conteudoAnalise: string) {
+  async function salvarNaTabela(conteudoAnalise: string, tipo: Modo = 'analise') {
     try {
       const supabase = createClient()
       const {
@@ -261,6 +269,7 @@ export default function AnaliseInstagramForm({
         .insert({
           nome_aluno: nomeAluno || null,
           conteudo: conteudoAnalise,
+          tipo,
           criado_por: user?.id ?? null,
           ...(tutoraSelecionada && { tutora: tutoraSelecionada }),
           ...(planoIdSelecionado && { plano_id: planoIdSelecionado }),
@@ -272,12 +281,11 @@ export default function AnaliseInstagramForm({
         setIdPublico(data.id)
       }
     } catch {
-      // Falha silenciosa — a análise ainda é exibida mesmo se o salvamento falhar
+      // Falha silenciosa
     }
   }
 
   // ── Salvar no plano (planoId fornecido) ────────────────────────────────────
-
   async function handleSalvar() {
     if (!analise || !planoId) return
     setSalvando(true)
@@ -300,8 +308,6 @@ export default function AnaliseInstagramForm({
     }
   }
 
-  // ── Copiar ─────────────────────────────────────────────────────────────────
-
   async function handleCopiar() {
     if (!analise) return
     await navigator.clipboard.writeText(analise)
@@ -309,13 +315,8 @@ export default function AnaliseInstagramForm({
     setTimeout(() => setCopiado(false), 2000)
   }
 
-  // ── Salvar como link público ───────────────────────────────────────────────
-
   async function handleSalvarPublico() {
     if (!analise) return
-    setSalvandoPublico(true)
-    setErro(null)
-
     try {
       const supabase = createClient()
       const {
@@ -327,6 +328,7 @@ export default function AnaliseInstagramForm({
         .insert({
           nome_aluno: nomeAluno || null,
           conteudo: analise,
+          tipo: modo,
           criado_por: user?.id ?? null,
           ...(tutoraSelecionada && { tutora: tutoraSelecionada }),
           ...(planoIdSelecionado && { plano_id: planoIdSelecionado }),
@@ -338,15 +340,12 @@ export default function AnaliseInstagramForm({
 
       const base = process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin
       const url = `${base}/analise/publico/${data.id}`
-
       await navigator.clipboard.writeText(url)
       setIdPublico(data.id)
       setLinkCopiado(true)
       setTimeout(() => setLinkCopiado(false), 3000)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar análise.')
-    } finally {
-      setSalvandoPublico(false)
     }
   }
 
@@ -359,11 +358,53 @@ export default function AnaliseInstagramForm({
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-5">
 
-      {/* Campo Aluno com busca na planilha (página avulsa) */}
+      {/* Toggle de modo — apenas na página avulsa */}
+      {mostrarAlunoBusca && (
+        <div className="space-y-3">
+          <div className="flex rounded-xl border border-creme-dark overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { setModo('analise'); setAnalise(null); setErro(null) }}
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                modo === 'analise'
+                  ? 'bg-petroleo text-creme'
+                  : 'text-petroleo/70 hover:bg-offwhite'
+              }`}
+            >
+              📷 Tenho Instagram
+            </button>
+            <button
+              type="button"
+              onClick={() => { setModo('planejamento'); setAnalise(null); setErro(null) }}
+              className={`flex-1 py-3 text-sm font-medium transition-colors border-l border-creme-dark ${
+                modo === 'planejamento'
+                  ? 'bg-petroleo text-creme'
+                  : 'text-petroleo/70 hover:bg-offwhite'
+              }`}
+            >
+              🚀 Ainda não tenho Instagram
+            </button>
+          </div>
+
+          <div>
+            <h2 className="font-playfair text-xl font-semibold text-petroleo">
+              {modo === 'analise'
+                ? 'Análise Estratégica de Instagram'
+                : 'Planejamento Estratégico de Instagram'}
+            </h2>
+            <p className="text-petroleo/50 text-xs mt-0.5">
+              {modo === 'analise'
+                ? 'Envie prints do perfil para gerar uma análise estratégica com IA'
+                : 'Preencha os dados abaixo para criar um plano de Instagram do zero'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Campo Aluno com busca na planilha */}
       {mostrarAlunoBusca && (
         <div className="space-y-2">
           <label className="block text-sm font-medium text-petroleo mb-1.5">
@@ -374,8 +415,7 @@ export default function AnaliseInstagramForm({
             placeholder="Buscar aluno pelo nome..."
           />
 
-          {/* Instagram do aluno (preenchido automaticamente) */}
-          {igAluno && (
+          {igAluno && modo === 'analise' && (
             <div className="flex items-center gap-2 mt-2">
               <input
                 type="text"
@@ -407,7 +447,7 @@ export default function AnaliseInstagramForm({
         </div>
       )}
 
-      {/* Nome do aluno (campo de texto livre — página do plano) */}
+      {/* Nome livre (página do plano) */}
       {mostrarInputNome && (
         <div>
           <label className="block text-sm font-medium text-petroleo mb-1.5">
@@ -423,7 +463,7 @@ export default function AnaliseInstagramForm({
         </div>
       )}
 
-      {/* Tutora — botões dinâmicos */}
+      {/* Tutora */}
       {mostrarTutora && (
         <div>
           <label className="block text-sm font-medium text-petroleo mb-2">
@@ -452,92 +492,159 @@ export default function AnaliseInstagramForm({
         </div>
       )}
 
-      {/* Zona de upload de imagens */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-petroleo">
-            Prints do Instagram
-            <span className="text-petroleo/50 font-normal ml-1">
-              ({imagens.length}/{MAX_IMAGENS})
-            </span>
-          </label>
-          {imagens.length < MAX_IMAGENS && (
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              className="text-petroleo/60 text-xs hover:text-petroleo transition-colors"
-            >
-              + Adicionar
-            </button>
-          )}
-        </div>
-
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          onChange={(e) => e.target.files && processarArquivos(e.target.files)}
-          className="hidden"
-        />
-
-        {imagens.length === 0 ? (
-          <div
-            onDrop={onDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={() => setIsDragging(false)}
-            onClick={() => inputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
-              isDragging
-                ? 'border-petroleo bg-creme/20'
-                : 'border-creme-dark hover:border-petroleo/40 hover:bg-offwhite'
-            }`}
-          >
-            <p className="text-3xl mb-2">📷</p>
-            <p className="text-sm font-medium text-petroleo">
-              Clique ou arraste as imagens aqui
-            </p>
-            <p className="text-xs text-petroleo/50 mt-1">
-              Até {MAX_IMAGENS} prints · PNG, JPG, WEBP · comprimidos automaticamente
-            </p>
-          </div>
-        ) : (
-          <div
-            onDrop={onDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={() => setIsDragging(false)}
-            className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
-              isDragging ? 'border-petroleo bg-creme/10' : 'border-creme-dark'
-            }`}
-          >
-            {imagens.map((img, i) => (
-              <div key={i} className="relative group aspect-square">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={img.previewUrl}
-                  alt={`Print ${i + 1}`}
-                  className="w-full h-full object-cover rounded-lg border border-creme"
-                />
-                <button
-                  onClick={() => removerImagem(i)}
-                  className="absolute top-1 right-1 w-5 h-5 bg-petroleo text-creme rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+      {/* ── MODO A: upload de prints ────────────────────────────────────────── */}
+      {modo === 'analise' && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-medium text-petroleo">
+              Prints do Instagram{' '}
+              <span className="text-petroleo/50 font-normal">
+                ({imagens.length}/{MAX_IMAGENS})
+              </span>
+              <span className="text-petroleo/40 font-normal ml-1 text-xs">(opcional)</span>
+            </label>
             {imagens.length < MAX_IMAGENS && (
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
-                className="aspect-square rounded-lg border-2 border-dashed border-creme-dark hover:border-petroleo/40 flex items-center justify-center text-petroleo/30 hover:text-petroleo/60 transition-colors text-2xl"
+                className="text-petroleo/60 text-xs hover:text-petroleo transition-colors"
               >
-                +
+                + Adicionar
               </button>
             )}
           </div>
-        )}
-      </div>
+
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => e.target.files && processarArquivos(e.target.files)}
+            className="hidden"
+          />
+
+          {imagens.length === 0 ? (
+            <div
+              onDrop={onDrop}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+              onDragLeave={() => setIsDragging(false)}
+              onClick={() => inputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors ${
+                isDragging
+                  ? 'border-petroleo bg-creme/20'
+                  : 'border-creme-dark hover:border-petroleo/40 hover:bg-offwhite'
+              }`}
+            >
+              <p className="text-3xl mb-2">📷</p>
+              <p className="text-sm font-medium text-petroleo">
+                Clique ou arraste as imagens aqui
+              </p>
+              <p className="text-xs text-petroleo/50 mt-1">
+                Até {MAX_IMAGENS} prints · PNG, JPG, WEBP · comprimidos automaticamente
+              </p>
+            </div>
+          ) : (
+            <div
+              onDrop={onDrop}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+              onDragLeave={() => setIsDragging(false)}
+              className={`grid grid-cols-3 gap-3 p-3 rounded-xl border-2 border-dashed transition-colors ${
+                isDragging ? 'border-petroleo bg-creme/10' : 'border-creme-dark'
+              }`}
+            >
+              {imagens.map((img, i) => (
+                <div key={i} className="relative group aspect-square">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.previewUrl}
+                    alt={`Print ${i + 1}`}
+                    className="w-full h-full object-cover rounded-lg border border-creme"
+                  />
+                  <button
+                    onClick={() => removerImagem(i)}
+                    className="absolute top-1 right-1 w-5 h-5 bg-petroleo text-creme rounded-full text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {imagens.length < MAX_IMAGENS && (
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="aspect-square rounded-lg border-2 border-dashed border-creme-dark hover:border-petroleo/40 flex items-center justify-center text-petroleo/30 hover:text-petroleo/60 transition-colors text-2xl"
+                >
+                  +
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── MODO B: campos de planejamento ─────────────────────────────────── */}
+      {modo === 'planejamento' && (
+        <div className="space-y-4">
+          {/* Nicho */}
+          <div>
+            <label className="block text-sm font-medium text-petroleo mb-1.5">
+              Nicho de atuação *
+            </label>
+            <input
+              type="text"
+              value={nicho}
+              onChange={(e) => setNicho(e.target.value)}
+              placeholder="Ex: Advogado trabalhista, Médica ortopedista, Coach financeiro..."
+              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm"
+            />
+          </div>
+
+          {/* Público-alvo */}
+          <div>
+            <label className="block text-sm font-medium text-petroleo mb-1.5">
+              Público-alvo{' '}
+              <span className="font-normal text-petroleo/50">(opcional)</span>
+            </label>
+            <textarea
+              value={publicoAlvo}
+              onChange={(e) => setPublicoAlvo(e.target.value)}
+              placeholder="Descreva quem você quer atingir: perfil, dores, desejos..."
+              rows={3}
+              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm resize-none"
+            />
+          </div>
+
+          {/* Objetivo nas redes */}
+          <div>
+            <label className="block text-sm font-medium text-petroleo mb-1.5">
+              Objetivo nas redes sociais{' '}
+              <span className="font-normal text-petroleo/50">(opcional)</span>
+            </label>
+            <textarea
+              value={objetivoRedes}
+              onChange={(e) => setObjetivoRedes(e.target.value)}
+              placeholder="Ex: Atrair clientes, construir autoridade, vender infoprodutos..."
+              rows={3}
+              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm resize-none"
+            />
+          </div>
+
+          {/* Referências */}
+          <div>
+            <label className="block text-sm font-medium text-petroleo mb-1.5">
+              Referências de perfis{' '}
+              <span className="font-normal text-petroleo/50">(opcional)</span>
+            </label>
+            <input
+              type="text"
+              value={referencias}
+              onChange={(e) => setReferencias(e.target.value)}
+              placeholder="Perfis do Instagram que você admira ou quer se inspirar"
+              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Informações adicionais */}
       <div>
@@ -568,7 +675,9 @@ export default function AnaliseInstagramForm({
         disabled={analisando}
         className="w-full bg-petroleo text-creme py-3 px-6 rounded-xl font-semibold text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
       >
-        {analisando ? '🔍 Analisando...' : '🔍 Gerar Análise'}
+        {analisando
+          ? modo === 'planejamento' ? '🚀 Gerando planejamento...' : '🔍 Analisando...'
+          : modo === 'planejamento' ? '🚀 Gerar Planejamento' : '🔍 Gerar Análise'}
       </button>
 
       {/* Resultado */}
@@ -576,7 +685,7 @@ export default function AnaliseInstagramForm({
         <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-playfair text-lg text-petroleo font-semibold">
-              Análise gerada
+              {modo === 'planejamento' ? 'Planejamento gerado' : 'Análise gerada'}
             </h3>
             <div className="flex gap-2">
               <button
@@ -598,7 +707,7 @@ export default function AnaliseInstagramForm({
             <PlanoMarkdown conteudo={analise} />
           </div>
 
-          {/* Salvar no plano (quando planoId fornecido) */}
+          {/* Salvar no plano */}
           {planoId && (
             <div className="mt-4 pt-4 border-t border-creme flex items-center gap-3">
               <button
@@ -614,7 +723,7 @@ export default function AnaliseInstagramForm({
             </div>
           )}
 
-          {/* Link público (página avulsa) */}
+          {/* Link público */}
           {mostrarBotaoPublico && idPublico && (
             <div className="mt-4 pt-4 border-t border-creme">
               <div className="flex items-center gap-3">
@@ -633,7 +742,7 @@ export default function AnaliseInstagramForm({
         </div>
       )}
 
-      {/* Análise já salva (quando existe e nenhuma nova foi gerada) */}
+      {/* Análise já salva */}
       {analiseExistente && !analise && (
         <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
           <div className="flex items-center justify-between mb-4">

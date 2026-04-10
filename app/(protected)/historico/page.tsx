@@ -13,7 +13,7 @@ export default async function HistoricoPage() {
       .order('created_at', { ascending: false }),
     supabase
       .from('analises_instagram')
-      .select('id, created_at, nome_aluno, conteudo, tutora')
+      .select('id, created_at, nome_aluno, conteudo, tutora, tipo')
       .order('created_at', { ascending: false }),
     supabase.from('planos').select('tutora').order('tutora'),
   ])
@@ -31,7 +31,7 @@ export default async function HistoricoPage() {
 
   const itensAnalises: ItemHistorico[] = (analises ?? []).map((a) => ({
     id: a.id,
-    tipo: 'analise',
+    tipo: (a.tipo === 'planejamento' ? 'planejamento' : 'analise') as ItemHistorico['tipo'],
     created_at: a.created_at,
     nome: a.nome_aluno ?? '—',
     tutora: a.tutora ?? null,

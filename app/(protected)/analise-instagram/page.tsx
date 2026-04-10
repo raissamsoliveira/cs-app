@@ -42,16 +42,6 @@ export default function AnaliseInstagramPage() {
       `}</style>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Título */}
-        <div className="mb-8">
-          <h1 className="font-playfair text-3xl text-petroleo font-semibold">
-            Análise de Instagram
-          </h1>
-          <p className="text-petroleo/60 text-sm mt-1">
-            Envie até 6 prints do perfil para gerar um relatório estratégico com IA
-          </p>
-        </div>
-
         {/* Formulário */}
         <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
           <AnaliseInstagramForm mostrarAlunoBusca mostrarTutora mostrarBotaoPublico />

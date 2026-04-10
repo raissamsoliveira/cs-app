@@ -76,6 +76,69 @@ REGRAS IMPORTANTES:
 - Se houver informações adicionais fornecidas pela tutora, use-as para personalizar a análise
 - Se houver objetivo do aluno na mentoria, conecte todas as recomendações a esse objetivo`
 
+const SYSTEM_PROMPT_PLANEJAMENTO = `Você é uma especialista em posicionamento digital e marketing de autoridade da Mentoria Primus. Sua função é criar um Planejamento Estratégico de Instagram do zero para um mentorado que ainda não tem presença digital ativa.
+
+Tom: profissional, direto, inspirador. Use parágrafos corridos para análises e tabelas para recomendações estruturadas. O planejamento deve parecer criado por uma consultora experiente que entende profundamente o nicho e o público do mentorado.
+
+ESTRUTURA OBRIGATÓRIA (use exatamente estes títulos e formatos):
+
+---
+
+## 1. POSICIONAMENTO ESTRATÉGICO SUGERIDO
+
+Escreva 2 a 3 parágrafos definindo o posicionamento de marca recomendado para o perfil. Explique qual narrativa o mentorado deve construir, como se diferenciar no nicho, e qual percepção de valor quer gerar no público. Seja específica e conecte com o nicho e objetivo declarado.
+
+---
+
+## 2. IDENTIDADE DO PERFIL
+
+Crie uma tabela com recomendações de identidade visual e comunicacional:
+
+| Elemento | Recomendação | Justificativa |
+|----------|-------------|---------------|
+| Nome de usuário | [sugestão] | [por que funciona] |
+| Bio | [texto sugerido] | [o que comunica] |
+| Foto de perfil | [orientação] | [impacto] |
+| Paleta de cores | [sugestão] | [associação] |
+| Tipografia | [estilo sugerido] | [sensação transmitida] |
+
+---
+
+## 3. PILARES DE CONTEÚDO
+
+Crie uma tabela definindo os pilares estratégicos de conteúdo:
+
+| Pilar | Tipo de Conteúdo | Exemplos de Temas | Frequência Sugerida |
+|-------|-----------------|-------------------|---------------------|
+| [pilar 1] | [formato] | [tema A, tema B] | [X vezes/semana] |
+| [pilar 2] | [formato] | [tema A, tema B] | [X vezes/semana] |
+[mínimo 3 pilares, máximo 5]
+
+---
+
+## 4. PLANO DE LANÇAMENTO
+
+Organize em 3 fases. Cada fase deve ter:
+- Título no formato: FASE [número]: [NOME DA FASE EM MAIÚSCULAS] ([prazo])
+- 1 parágrafo explicando o foco da fase
+- Tabela de ações:
+
+| Ação | Descrição | Resultado Esperado |
+|------|-----------|-------------------|
+| [ação] | [descrição direta] | [resultado] |
+[mínimo 3 ações por fase]
+
+---
+
+REGRAS IMPORTANTES:
+- Nunca use listas com bullet points (- item)
+- Use sempre parágrafos corridos ou tabelas
+- Seja específica: use o nicho e o público-alvo fornecidos em todas as recomendações
+- Conecte as recomendações ao objetivo declarado nas redes sociais
+- Tom: como uma consultora experiente montando uma estratégia real para o cliente
+- Não use frases genéricas como "é fundamental que" ou "é importante ressaltar"
+- Se houver referências de perfis inspiradores, considere-os nas recomendações`
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 interface ImagemInput {
@@ -86,33 +149,72 @@ interface ImagemInput {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { nomeAluno, imagens, objetivoAluno, infoAdicionais } = body as {
+    const {
+      nomeAluno,
+      imagens,
+      objetivoAluno,
+      infoAdicionais,
+      tipo,
+      nicho,
+      publicoAlvo,
+      objetivoRedes,
+      referencias,
+    } = body as {
       nomeAluno: string
-      imagens: ImagemInput[]
+      imagens?: ImagemInput[]
       objetivoAluno?: string
       infoAdicionais?: string
+      tipo?: 'analise' | 'planejamento'
+      nicho?: string
+      publicoAlvo?: string
+      objetivoRedes?: string
+      referencias?: string
     }
+
+    const isPlanejamento = tipo === 'planejamento'
 
     if (!nomeAluno?.trim()) {
       return Response.json({ error: 'Campo obrigatório: nomeAluno.' }, { status: 400 })
     }
-    if (!imagens?.length) {
-      return Response.json({ error: 'Envie pelo menos uma imagem.' }, { status: 400 })
+    if (isPlanejamento && !nicho?.trim()) {
+      return Response.json({ error: 'Campo obrigatório: nicho.' }, { status: 400 })
     }
 
-    const imageBlocks = imagens.map((img) => ({
-      type: 'image' as const,
-      source: {
-        type: 'base64' as const,
-        media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-        data: img.data,
-      },
-    }))
+    const imageBlocks =
+      !isPlanejamento && imagens?.length
+        ? imagens.map((img) => ({
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: img.data,
+            },
+          }))
+        : []
+
+    const userTextParts: string[] = []
+    if (isPlanejamento) {
+      userTextParts.push(`NICHO: ${nicho}`)
+      if (publicoAlvo) userTextParts.push(`PÚBLICO-ALVO: ${publicoAlvo}`)
+      if (objetivoRedes) userTextParts.push(`OBJETIVO NAS REDES SOCIAIS: ${objetivoRedes}`)
+      if (referencias) userTextParts.push(`PERFIS DE REFERÊNCIA: ${referencias}`)
+      if (objetivoAluno) userTextParts.push(`OBJETIVO NA MENTORIA: ${objetivoAluno}`)
+      userTextParts.push(
+        `Crie o Planejamento Estratégico de Instagram completo para "${nomeAluno}" conforme a estrutura obrigatória.`,
+      )
+    } else {
+      if (objetivoAluno) userTextParts.push(`OBJETIVO DO ALUNO NA MENTORIA: ${objetivoAluno}`)
+      if (infoAdicionais)
+        userTextParts.push(`INFORMAÇÕES ADICIONAIS FORNECIDAS PELA TUTORA: ${infoAdicionais}`)
+      userTextParts.push(
+        `Analise os prints do Instagram do(a) aluno(a) / perfil "${nomeAluno}" e gere a análise estratégica completa conforme a estrutura obrigatória.`,
+      )
+    }
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: isPlanejamento ? SYSTEM_PROMPT_PLANEJAMENTO : SYSTEM_PROMPT,
       messages: [
         {
           role: 'user',
@@ -120,17 +222,7 @@ export async function POST(request: Request) {
             ...imageBlocks,
             {
               type: 'text',
-              text: [
-                objetivoAluno
-                  ? `OBJETIVO DO ALUNO NA MENTORIA: ${objetivoAluno}`
-                  : '',
-                infoAdicionais
-                  ? `INFORMAÇÕES ADICIONAIS FORNECIDAS PELA TUTORA: ${infoAdicionais}`
-                  : '',
-                `Analise os prints do Instagram do(a) aluno(a) / perfil "${nomeAluno}" e gere a análise estratégica completa conforme a estrutura obrigatória.`,
-              ]
-                .filter(Boolean)
-                .join('\n\n'),
+              text: userTextParts.join('\n\n'),
             },
           ],
         },
@@ -139,7 +231,7 @@ export async function POST(request: Request) {
 
     const analise = message.content
       .filter((b) => b.type === 'text')
-      .map((b) => b.text)
+      .map((b) => (b as { type: 'text'; text: string }).text)
       .join('\n')
 
     return Response.json({ analise })

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 
-type Tipo = 'plano' | 'analise'
+type Tipo = 'plano' | 'analise' | 'planejamento'
 
 export interface ItemHistorico {
   id: string
@@ -82,7 +82,7 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
 
         {/* Tipo */}
         <div className="flex flex-wrap gap-2">
-          {([['', 'Todos'], ['plano', 'Planos de Ação'], ['analise', 'Análises de Instagram']] as const).map(
+          {([['', 'Todos'], ['plano', 'Planos de Ação'], ['analise', 'Análises de Instagram'], ['planejamento', 'Planejamentos']] as const).map(
             ([val, label]) => (
               <button
                 key={label}
@@ -210,10 +210,16 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
                         className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium ${
                           item.tipo === 'plano'
                             ? 'bg-petroleo/10 text-petroleo'
-                            : 'bg-creme text-petroleo/70'
+                            : item.tipo === 'planejamento'
+                              ? 'bg-[#e8f4f0] text-[#2d7a5c]'
+                              : 'bg-creme text-petroleo/70'
                         }`}
                       >
-                        {item.tipo === 'plano' ? 'Plano de Ação' : 'Análise Instagram'}
+                        {item.tipo === 'plano'
+                          ? 'Plano de Ação'
+                          : item.tipo === 'planejamento'
+                            ? 'Planejamento'
+                            : 'Análise Instagram'}
                       </span>
                     </td>
 
@@ -238,7 +244,11 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
                         }
                         className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
                       >
-                        {item.tipo === 'plano' ? 'Ver plano' : 'Ver análise'}
+                        {item.tipo === 'plano'
+                          ? 'Ver plano'
+                          : item.tipo === 'planejamento'
+                            ? 'Ver planejamento'
+                            : 'Ver análise'}
                       </Link>
                     </td>
                   </tr>
