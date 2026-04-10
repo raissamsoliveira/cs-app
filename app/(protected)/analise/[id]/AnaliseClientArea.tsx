@@ -5,29 +5,203 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
+import {
+  escHtml,
+  boldHtml,
+  renderTabelaHtml,
+  renderConteudoHtml,
+  logoHtml,
+  buildSlidesHtml,
+  type SlideEntry,
+} from '@/lib/slides'
 
 interface AnaliseData {
   id: string
   nome_aluno: string | null
   conteudo: string
+  created_at: string
 }
 
 function formatarAnaliseParaNotion(conteudo: string): string {
   return conteudo
     .split('\n')
     .map((linha) => {
-      // ## 1) Título ou ## **1) Título**
       const matchH2 = linha.match(/^##\s+\*?\*?(\d+\)[^*]+?)\*?\*?\s*$/)
       if (matchH2) return `## <u>${matchH2[1].trim()}</u>`
-
-      // **1) Título**
       const matchBold = linha.match(/^\*\*(\d+\)[^*]+)\*\*\s*$/)
       if (matchBold) return `## <u>${matchBold[1].trim()}</u>`
-
       return linha
     })
     .join('\n')
 }
+
+// ── Gerador de slides da análise de Instagram ─────────────────────────────────
+
+const isSep = (l: string) => /^[\s|:\-]+$/.test(l)
+const MAX_FASE_ROWS = 4 // slide A mostra até 4 linhas; split se body > 5
+
+function markdownParaSlides(
+  conteudo: string,
+  nomeAluno: string | null,
+  dataCriacao: string,
+): string {
+  // ── Parse sections ──────────────────────────────────────────────────────────
+  type Bloco = { tipo: 'h2' | 'h3'; titulo: string; linhas: string[] }
+  const blocos: Bloco[] = []
+  let atual: Bloco | null = null
+
+  for (const linha of conteudo.split('\n')) {
+    const t = linha.trim()
+
+    // FASE detectado em qualquer formato: ### FASE n, ## FASE n, **FASE n**, FASE n:
+    const matchFase = /^(#{0,3}\s*\*{0,2})FASE\s+\d+/i.test(t)
+
+    if (matchFase) {
+      if (atual) blocos.push(atual)
+      const titulo = t
+        .replace(/^#{0,3}\s*/, '')
+        .replace(/^\*\*/, '')
+        .replace(/\*\*$/, '')
+        .trim()
+      atual = { tipo: 'h3', titulo, linhas: [] }
+    } else if (t.startsWith('## ')) {
+      if (atual) blocos.push(atual)
+      atual = { tipo: 'h2', titulo: t.slice(3).trim(), linhas: [] }
+    } else if (atual) {
+      atual.linhas.push(linha)
+    }
+  }
+  if (atual) blocos.push(atual)
+
+  // ── Build slides ────────────────────────────────────────────────────────────
+  const slides: SlideEntry[] = []
+
+  const dataFmt = new Date(dataCriacao).toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  })
+
+  // Slide 1 — Capa
+  slides.push({
+    dark: true,
+    html: [
+      '<div class="capa">',
+      logoHtml(),
+      nomeAluno ? '<div class="capa-nome">' + escHtml(nomeAluno) + '</div>' : '',
+      '<div class="capa-meta">An&aacute;lise de Instagram &middot; ' + dataFmt + '</div>',
+      '<div class="capa-rodape">Mentoria Primus &middot; Ser Mais Criativo</div>',
+      '</div>',
+    ].join('\n'),
+  })
+
+  const hasFases = blocos.some((b) => b.tipo === 'h3')
+
+  // Slides de conteúdo (## 1, ## 2, ## 3)
+  for (const bloco of blocos) {
+    if (bloco.tipo !== 'h2') continue
+    const num = parseInt(bloco.titulo.match(/^(\d+)/)?.[1] ?? '0')
+    if (num >= 4 && hasFases) continue // ## 4 é só container das fases
+
+    slides.push({
+      html: [
+        '<h2 class="slide-titulo">' + boldHtml(bloco.titulo) + '</h2>',
+        '<div class="slide-corpo">' + renderConteudoHtml(bloco.linhas) + '</div>',
+      ].join('\n'),
+    })
+  }
+
+  // Slides de fases
+  for (const bloco of blocos) {
+    if (bloco.tipo !== 'h3') continue
+
+    // Separar parágrafos e tabela
+    const paraLinhas: string[] = []
+    const tblLinhas: string[] = []
+    for (const raw of bloco.linhas) {
+      const t = raw.trim()
+      if (t.startsWith('|')) tblLinhas.push(t)
+      else if (t && t !== '---') paraLinhas.push(raw)
+    }
+
+    const tblValidas = tblLinhas.filter((l) => !isSep(l))
+    const [head, ...body] = tblValidas
+
+    const needsSplit = body.length > 5
+    const corpoClass =
+      bloco.linhas.join('').length > 500 ? 'slide-corpo small' : 'slide-corpo'
+    const paraHtml = paraLinhas
+      .map((l) => '<p>' + boldHtml(l.trim()) + '</p>')
+      .join('\n')
+
+    const supertitulo =
+      '<p class="fase-supertitulo">RECOMENDA&Ccedil;&Otilde;ES ESTRAT&Eacute;GICAS</p>'
+    const h2Titulo =
+      '<h2 class="slide-titulo fase-titulo">' + boldHtml(bloco.titulo) + '</h2>'
+
+    if (!head || !needsSplit) {
+      // Slide único
+      const tblHtml = tblLinhas.length ? renderTabelaHtml(tblLinhas) : ''
+      slides.push({
+        html: [
+          supertitulo,
+          h2Titulo,
+          '<div class="' + corpoClass + '">',
+          paraHtml,
+          tblHtml,
+          '</div>',
+        ].join('\n'),
+      })
+    } else {
+      // Slide A — parágrafo + primeiras MAX_FASE_ROWS linhas
+      const tblA = renderTabelaHtml([head, ...body.slice(0, MAX_FASE_ROWS)])
+      slides.push({
+        html: [
+          supertitulo,
+          h2Titulo,
+          '<div class="' + corpoClass + '">',
+          paraHtml,
+          tblA,
+          '</div>',
+          '<p class="slide-nota">continua no pr&oacute;ximo slide &rarr;</p>',
+        ].join('\n'),
+      })
+
+      // Slide B — linhas restantes
+      const tblB = renderTabelaHtml([head, ...body.slice(MAX_FASE_ROWS)])
+      slides.push({
+        html: [
+          supertitulo,
+          '<h2 class="slide-titulo fase-titulo">' +
+            boldHtml(bloco.titulo) +
+            ' <span style="font-size:16px;font-family:Poppins,sans-serif;opacity:.5;font-weight:400">(continua&ccedil;&atilde;o)</span>' +
+            '</h2>',
+          '<div class="' + corpoClass + '">',
+          tblB,
+          '</div>',
+        ].join('\n'),
+      })
+    }
+  }
+
+  // Slide final — Encerramento
+  slides.push({
+    dark: true,
+    html: [
+      '<div class="encerramento">',
+      logoHtml(),
+      '<div class="enc-sub">Ser Mais Criativo</div>',
+      '</div>',
+    ].join('\n'),
+  })
+
+  return buildSlidesHtml(
+    slides,
+    'Análise de Instagram' + (nomeAluno ? ' — ' + nomeAluno : ''),
+  )
+}
+
+// ── Componente ────────────────────────────────────────────────────────────────
 
 export default function AnaliseClientArea({ analise }: { analise: AnaliseData }) {
   const router = useRouter()
@@ -37,6 +211,14 @@ export default function AnaliseClientArea({ analise }: { analise: AnaliseData })
   const [erro, setErro] = useState<string | null>(null)
   const [copiado, setCopiar] = useState(false)
   const [linkCopiado, setLinkCopiado] = useState(false)
+
+  function gerarApresentacao() {
+    const html = markdownParaSlides(analise.conteudo, analise.nome_aluno, analise.created_at)
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
 
   async function copiarParaNotion() {
     await navigator.clipboard.writeText(formatarAnaliseParaNotion(analise.conteudo))
@@ -143,8 +325,14 @@ export default function AnaliseClientArea({ analise }: { analise: AnaliseData })
           </button>
         </div>
 
-        {/* Grupo 2: Editar Manualmente | Voltar ao Histórico */}
+        {/* Grupo 2: Gerar Apresentação | Editar | Voltar */}
         <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={gerarApresentacao}
+            className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
+          >
+            🎯 Gerar Apresentação
+          </button>
           <button
             onClick={() => { setTexto(analise.conteudo); setErro(null); setEditMode(!editMode) }}
             className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"

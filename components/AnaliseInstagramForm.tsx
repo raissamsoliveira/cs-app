@@ -113,6 +113,9 @@ export default function AnaliseInstagramForm({
   }
 
   // ── Tutoras dinâmicas ──────────────────────────────────────────────────────
+  const [infoAdicionais, setInfoAdicionais] = useState('')
+
+  // ── Tutoras dinâmicas ──────────────────────────────────────────────────────
   const [tutoras, setTutoras] = useState<string[]>([])
   const [tutoraSelecionada, setTutoraSelecionada] = useState('')
 
@@ -222,6 +225,7 @@ export default function AnaliseInstagramForm({
           nomeAluno,
           imagens: imagens.map((img) => ({ data: img.base64, mediaType: img.mediaType })),
           ...(objetivoAluno && { objetivoAluno }),
+          ...(infoAdicionais.trim() && { infoAdicionais: infoAdicionais.trim() }),
         }),
       })
 
@@ -533,6 +537,22 @@ export default function AnaliseInstagramForm({
             )}
           </div>
         )}
+      </div>
+
+      {/* Informações adicionais */}
+      <div>
+        <label className="block text-sm font-medium text-petroleo mb-1.5">
+          Informações adicionais{' '}
+          <span className="font-normal text-petroleo/50">(opcional)</span>
+        </label>
+        <textarea
+          value={infoAdicionais}
+          onChange={(e) => setInfoAdicionais(e.target.value)}
+          placeholder="Descreva o contexto do aluno, objetivos específicos, nicho de atuação, público-alvo ou qualquer informação relevante que ajude na análise..."
+          rows={4}
+          className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition text-sm resize-none"
+          style={{ minHeight: 100 }}
+        />
       </div>
 
       {/* Erro */}

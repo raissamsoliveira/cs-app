@@ -15,7 +15,7 @@ export default async function AnalisePage({
     .from('analises_instagram')
     .select('id, nome_aluno, created_at, conteudo')
     .eq('id', id)
-    .single()
+    .single<{ id: string; nome_aluno: string | null; created_at: string; conteudo: string }>()
 
   if (error || !analise) {
     notFound()
@@ -97,6 +97,7 @@ export default async function AnalisePage({
               id: analise.id,
               nome_aluno: analise.nome_aluno,
               conteudo: analise.conteudo,
+              created_at: analise.created_at,
             }}
           />
         </div>
