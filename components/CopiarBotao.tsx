@@ -6,6 +6,7 @@ interface Props {
   conteudo: string
   createdAt: string
   hasAnalise: boolean
+  className?: string
 }
 
 function formatarParaNotion(conteudo: string, createdAt: string, hasAnalise: boolean): string {
@@ -97,7 +98,7 @@ function formatarParaNotion(conteudo: string, createdAt: string, hasAnalise: boo
   ].join('\n')
 }
 
-export default function CopiarBotao({ conteudo, createdAt, hasAnalise }: Props) {
+export default function CopiarBotao({ conteudo, createdAt, hasAnalise, className }: Props) {
   const [copiado, setCopiado] = useState(false)
 
   async function copiar() {
@@ -110,7 +111,10 @@ export default function CopiarBotao({ conteudo, createdAt, hasAnalise }: Props) 
   return (
     <button
       onClick={copiar}
-      className="flex-1 bg-petroleo text-creme py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light transition-colors"
+      className={
+        className ??
+        'flex-1 bg-petroleo text-creme py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light transition-colors'
+      }
     >
       {copiado ? '✓ Copiado!' : '📋 Copiar para Notion'}
     </button>

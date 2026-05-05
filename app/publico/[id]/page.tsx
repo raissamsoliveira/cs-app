@@ -17,15 +17,33 @@ export default async function PlanoPublicoPage({
   const { id } = await params
 
   const supabase = criarClientePublico()
-  const { data: plano, error } = await supabase
-    .from('planos')
-    .select('id, nome_aluno, tutora, created_at, conteudo')
-    .eq('id', id)
-    .single()
+
+  const [{ data: plano, error }, { data: analiseRows }] = await Promise.all([
+    supabase
+      .from('planos')
+      .select('id, nome_aluno, tutora, created_at, conteudo, analise_instagram')
+      .eq('id', id)
+      .single(),
+    supabase
+      .from('analises_instagram')
+      .select('conteudo, tipo')
+      .eq('plano_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1),
+  ])
 
   if (error || !plano) {
     notFound()
   }
+
+  const analiseNova = analiseRows && analiseRows.length > 0 ? analiseRows[0] : null
+  const analiseIG: string | null =
+    analiseNova?.conteudo ?? plano.analise_instagram ?? null
+  const tipoIG: 'analise' | 'planejamento' | null = analiseNova
+    ? analiseNova.tipo === 'planejamento'
+      ? 'planejamento'
+      : 'analise'
+    : null
 
   const dataCriacao = new Date(plano.created_at).toLocaleDateString('pt-BR', {
     day: '2-digit',
@@ -66,9 +84,28 @@ export default async function PlanoPublicoPage({
           </div>
         </div>
 
-        {/* Conteúdo */}
-        <div className="bg-white rounded-2xl shadow-sm border border-[#f7e4ca] p-6 mb-10">
+        {/* Conteúdo: plano + (opcional) análise de Instagram */}
+        <div className="bg-white rounded-2xl shadow-sm border border-[#f7e4ca] p-6 mb-10 space-y-6">
           <PlanoMarkdown conteudo={plano.conteudo} />
+
+          {analiseIG && (
+            <>
+              <div className="my-8 pt-6 border-t-2 border-[#e8c99a]">
+                <p className="text-xs uppercase tracking-wider text-[#05343d]/50 font-medium mb-1">
+                  Seção complementar
+                </p>
+                <h3
+                  className="text-2xl font-semibold text-[#05343d]"
+                  style={{ fontFamily: 'Playfair Display, serif' }}
+                >
+                  {tipoIG === 'planejamento'
+                    ? 'Planejamento Estratégico de Instagram'
+                    : 'Análise Estratégica de Instagram'}
+                </h3>
+              </div>
+              <PlanoMarkdown conteudo={analiseIG} />
+            </>
+          )}
         </div>
 
         {/* Rodapé */}

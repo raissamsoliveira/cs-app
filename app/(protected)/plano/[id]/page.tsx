@@ -2,7 +2,8 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import PlanoClientArea from './PlanoClientArea'
-import PlanoMarkdown from '@/components/PlanoMarkdown'
+
+type TipoIG = 'analise' | 'planejamento'
 
 export default async function PlanoPage({
   params,
@@ -12,15 +13,30 @@ export default async function PlanoPage({
   const { id } = await params
 
   const supabase = await createClient()
-  const { data: plano, error } = await supabase
-    .from('planos')
-    .select('*')
-    .eq('id', id)
-    .single()
+
+  // Busca paralela: plano + análise de Instagram vinculada (mais recente).
+  const [{ data: plano, error }, { data: analiseRows }] = await Promise.all([
+    supabase.from('planos').select('*').eq('id', id).single(),
+    supabase
+      .from('analises_instagram')
+      .select('id, conteudo, tipo, created_at')
+      .eq('plano_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1),
+  ])
 
   if (error || !plano) {
     notFound()
   }
+
+  const analiseNova = analiseRows && analiseRows.length > 0 ? analiseRows[0] : null
+
+  // Prioridade: registro novo em analises_instagram → coluna legacy planos.analise_instagram
+  const analiseIGConteudo: string | null =
+    analiseNova?.conteudo ?? plano.analise_instagram ?? null
+
+  const tipoIG: TipoIG | null =
+    analiseNova && (analiseNova.tipo === 'planejamento' ? 'planejamento' : 'analise')
 
   return (
     <>
@@ -87,7 +103,7 @@ export default async function PlanoPage({
             </div>
           </div>
 
-          {/* Conteúdo + botões */}
+          {/* Conteúdo do plano + análise IG (renderizados juntos no client) + botões de ação */}
           <PlanoClientArea
             plano={{
               id: plano.id,
@@ -95,20 +111,12 @@ export default async function PlanoPage({
               tutora: plano.tutora,
               conteudo: plano.conteudo,
               createdAt: plano.created_at,
-              hasAnalise: !!plano.analise_instagram,
+              hasAnalise: !!analiseIGConteudo,
+              analiseIG: analiseIGConteudo,
+              tipoIG,
             }}
           />
         </div>
-
-        {/* Análise de Instagram salva — apenas leitura, sem formulário de upload */}
-        {plano.analise_instagram && (
-          <div className="no-print bg-white rounded-2xl shadow-sm border border-creme p-6 mt-2">
-            <h2 className="font-playfair text-lg text-petroleo font-semibold mb-4">
-              Análise de Instagram
-            </h2>
-            <PlanoMarkdown conteudo={plano.analise_instagram} />
-          </div>
-        )}
       </div>
     </>
   )

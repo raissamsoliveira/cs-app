@@ -21,12 +21,17 @@ export function useAlunos(query: string) {
     timerRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/alunos?q=${encodeURIComponent(query)}`)
-        if (!res.ok) throw new Error(`Erro ${res.status}`)
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error || `Erro ${res.status}`)
+        }
         const data = await res.json()
         setAlunos(data.alunos ?? [])
         setError(null)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro')
+        const msg = err instanceof Error ? err.message : 'Erro desconhecido'
+        console.error('[useAlunos] falha ao buscar:', msg)
+        setError(msg)
         setAlunos([])
       } finally {
         setLoading(false)

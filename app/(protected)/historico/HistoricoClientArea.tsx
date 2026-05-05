@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 
 type Tipo = 'plano' | 'analise' | 'planejamento'
 
@@ -20,9 +22,47 @@ interface Props {
 }
 
 export default function HistoricoClientArea({ todos, tutoras }: Props) {
+  const router = useRouter()
   const [busca, setBusca] = useState('')
   const [filtraTipo, setFiltraTipo] = useState<Tipo | ''>('')
   const [filtraTutora, setFiltraTutora] = useState('')
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
+
+  async function excluir(item: ItemHistorico) {
+    const tipoLabel =
+      item.tipo === 'plano' ? 'plano de ação' :
+      item.tipo === 'planejamento' ? 'planejamento de Instagram' :
+      'análise de Instagram'
+
+    const aviso =
+      item.tipo === 'plano'
+        ? `Tem certeza que deseja excluir o ${tipoLabel} de "${item.nome}"? Se houver análise de Instagram vinculada, ela também será excluída. Esta ação não pode ser desfeita.`
+        : `Tem certeza que deseja excluir o ${tipoLabel} de "${item.nome}"? Esta ação não pode ser desfeita.`
+
+    if (!confirm(aviso)) return
+
+    setExcluindoId(item.id)
+    try {
+      const supabase = createClient()
+
+      if (item.tipo === 'plano') {
+        // Apaga análises_instagram vinculadas (cascade manual)
+        await supabase.from('analises_instagram').delete().eq('plano_id', item.id)
+        const { error } = await supabase.from('planos').delete().eq('id', item.id)
+        if (error) throw new Error(error.message)
+      } else {
+        // analise ou planejamento
+        const { error } = await supabase.from('analises_instagram').delete().eq('id', item.id)
+        if (error) throw new Error(error.message)
+      }
+
+      router.refresh()
+    } catch (err) {
+      alert('Erro ao excluir: ' + (err instanceof Error ? err.message : 'desconhecido'))
+    } finally {
+      setExcluindoId(null)
+    }
+  }
 
   // Mapa de alunos da planilha: nomeNormalizado → aluno
   const [alunosMap, setAlunosMap] = useState<Map<string, Record<string, string>>>(new Map())
@@ -236,20 +276,30 @@ export default function HistoricoClientArea({ todos, tutoras }: Props) {
                     </td>
 
                     <td className="px-5 py-4 text-right">
-                      <Link
-                        href={
-                          item.tipo === 'plano'
-                            ? `/plano/${item.id}`
-                            : `/analise/${item.id}`
-                        }
-                        className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
-                      >
-                        {item.tipo === 'plano'
-                          ? 'Ver plano'
-                          : item.tipo === 'planejamento'
-                            ? 'Ver planejamento'
-                            : 'Ver análise'}
-                      </Link>
+                      <div className="inline-flex items-center gap-2">
+                        <Link
+                          href={
+                            item.tipo === 'plano'
+                              ? `/plano/${item.id}`
+                              : `/analise/${item.id}`
+                          }
+                          className="text-petroleo text-xs font-medium px-3 py-1.5 rounded-lg border border-creme-dark hover:bg-creme transition-colors"
+                        >
+                          {item.tipo === 'plano'
+                            ? 'Ver plano'
+                            : item.tipo === 'planejamento'
+                              ? 'Ver planejamento'
+                              : 'Ver análise'}
+                        </Link>
+                        <button
+                          onClick={() => excluir(item)}
+                          disabled={excluindoId === item.id}
+                          title="Excluir"
+                          className="text-red-600 text-xs font-medium px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {excluindoId === item.id ? '...' : '🗑'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )

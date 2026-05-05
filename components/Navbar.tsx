@@ -14,7 +14,7 @@ const baseLinks = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/novo-plano', label: 'Novo Plano' },
   { href: '/historico', label: 'Histórico' },
-  { href: '/analise-instagram', label: '📷 Instagram' },
+  { href: '/tutoras', label: 'Tutoras' },
 ]
 
 export default function Navbar({ user, hasApiAccess = false }: NavbarProps) {

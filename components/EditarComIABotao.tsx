@@ -5,13 +5,27 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 interface Props {
-  planoId: string
+  /** Null/undefined = plano ainda não salvo; o botão usará onSalvarSolicitado para salvar antes de regenerar. */
+  planoId: string | null
   nomeAluno: string
   tutora: string
   conteudo: string
+  /** Quando passado, o botão chama esse callback ao invés de router.refresh() — usado em /novo-plano. */
+  onUpdate?: (novoConteudo: string) => void
+  /** Callback para garantir o plano salvo antes de regenerar — retorna o id resultante. */
+  onSalvarSolicitado?: () => Promise<string | null>
+  className?: string
 }
 
-export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo }: Props) {
+export default function EditarComIABotao({
+  planoId,
+  nomeAluno,
+  tutora,
+  conteudo,
+  onUpdate,
+  onSalvarSolicitado,
+  className,
+}: Props) {
   const router = useRouter()
   const [aberto, setAberto] = useState(false)
   const [novasInfos, setNovasInfos] = useState('')
@@ -30,11 +44,24 @@ export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo 
     setSucesso(false)
 
     try {
-      // Passo 1: regenera o plano via Anthropic
+      // Garante que o plano está salvo (auto-save em /novo-plano)
+      let id = planoId
+      if (!id && onSalvarSolicitado) {
+        id = await onSalvarSolicitado()
+      }
+      if (!id) {
+        throw new Error('Salve o plano antes de editar com IA.')
+      }
+
       const res = await fetch('/api/regenerar-plano', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planoAtual: conteudo, novasInformacoes: novasInfos, nomeAluno, tutora }),
+        body: JSON.stringify({
+          planoAtual: conteudo,
+          novasInformacoes: novasInfos,
+          nomeAluno,
+          tutora,
+        }),
       })
 
       if (!res.ok) {
@@ -44,20 +71,23 @@ export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo 
 
       const { plano } = await res.json()
 
-      // Passo 2: salva o plano atualizado no Supabase
       const supabase = createClient()
-      // UPDATE apenas em "conteudo" — analise_instagram é preservada
       const { error } = await supabase
         .from('planos')
         .update({ conteudo: plano })
-        .eq('id', planoId)
+        .eq('id', id)
 
       if (error) throw new Error('Erro ao salvar: ' + error.message)
 
       setSucesso(true)
       setNovasInfos('')
       setAberto(false)
-      router.refresh()
+
+      if (onUpdate) {
+        onUpdate(plano)
+      } else {
+        router.refresh()
+      }
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro desconhecido.')
     } finally {
@@ -66,7 +96,7 @@ export default function EditarPlanoBotao({ planoId, nomeAluno, tutora, conteudo 
   }
 
   return (
-    <div className="flex-1 flex flex-col gap-3">
+    <div className={className ?? 'flex-1 flex flex-col gap-3'}>
       <button
         onClick={() => { setAberto(!aberto); setErro(null); setSucesso(false) }}
         className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"

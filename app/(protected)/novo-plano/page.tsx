@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import PlanoMarkdown from '@/components/PlanoMarkdown'
 import BuscaAluno from '@/components/BuscaAluno'
+import BlocoInstagram, {
+  type BlocoInstagramData,
+} from '@/components/BlocoInstagram'
+import BaixarPdfBotao from '@/components/BaixarPdfBotao'
+import CopiarLinkPublicoBotao from '@/components/CopiarLinkPublicoBotao'
+import EditarComIABotao from '@/components/EditarComIABotao'
+import CopiarBotao from '@/components/CopiarBotao'
+import GerarApresentacaoBotao from '@/components/GerarApresentacaoBotao'
 
 type AbaAluno = 'identificacao' | 'negocio' | 'comunicacao' | 'conteudo'
 
@@ -114,64 +122,83 @@ O que motivou entrar na Primus: ${v('O que te motivou a entrar na Mentoria Primu
 O que precisa acontecer após o ciclo: ${v('O que precisa ter acontecido na sua vida após o ciclo da mentoria para você sentir que o investimento foi válido?')}`
 }
 
+// ── Helper de extração de Instagram do aluno selecionado ────────────────────
+
+function extrairInstagram(aluno: Record<string, string>): string {
+  const key = Object.keys(aluno).find((k) =>
+    k.startsWith('Qual seu instagram ou linkedin')
+  )
+  return (key && aluno[key]?.trim()) || ''
+}
+
 // ── Componente principal ─────────────────────────────────────────────────────
 
 export default function NovoPlanoPage() {
-  const router = useRouter()
+  // (router será usado na Etapa 5, ao redirecionar para /plano/[id] após salvar)
+  useRouter()
 
-  // Campos comuns
+  // ── Bloco 1: Identificação ──────────────────────────────────────────────
   const [nomeAluno, setNomeAluno] = useState('')
   const [tutora, setTutora] = useState('')
   const [tutoras, setTutoras] = useState<string[]>([])
 
-  // Aluno selecionado da planilha
+  // ── Bloco 2: Dados do aluno ─────────────────────────────────────────────
   const [alunoSelecionado, setAlunoSelecionado] = useState<Record<string, string> | null>(null)
   const [contextoAluno, setContextoAluno] = useState('')
-  const [painelAberto, setPainelAberto] = useState(true)
+  const [painelDadosAberto, setPainelDadosAberto] = useState(true)
   const [abaAluno, setAbaAluno] = useState<AbaAluno>('identificacao')
+  const [instagramAluno, setInstagramAluno] = useState('')
 
   useEffect(() => {
     const supabase = createClient()
     supabase
-      .from('planos')
-      .select('tutora')
-      .not('tutora', 'is', null)
-      .order('tutora')
+      .from('tutoras')
+      .select('nome')
+      .eq('ativa', true)
+      .order('nome')
       .then(({ data }) => {
-        const lista = [...new Set((data ?? []).map((p) => p.tutora as string))]
-        setTutoras(lista)
+        setTutoras((data ?? []).map((t) => t.nome as string))
       })
   }, [])
 
-  // Contexto adicional
+  // ── Bloco 3: Contexto adicional (colapsável, fechado por padrão) ────────
+  const [contextoAberto, setContextoAberto] = useState(false)
   const [textoBruto, setTextoBruto] = useState('')
-
-  // PDA21 — PDF opcional
   const [pda21Base64, setPda21Base64] = useState<string | null>(null)
   const [nomePda21, setNomePda21] = useState('')
   const inputRefPda21 = useRef<HTMLInputElement>(null)
 
-  // Estado da geração
+  // ── Bloco 4: Instagram ──────────────────────────────────────────────────
+  const [blocoIG, setBlocoIG] = useState<BlocoInstagramData>({
+    tipo: 'analise',
+    imagens: [],
+    contextoIG: '',
+  })
+
+  // ── Bloco 5/6: Geração e resultado ──────────────────────────────────────
   const [gerando, setGerando] = useState(false)
   const [planoGerado, setPlanoGerado] = useState<string | null>(null)
+  const [analiseIGGerada, setAnaliseIGGerada] = useState<string | null>(null)
+  const [tipoIGGerado, setTipoIGGerado] = useState<'analise' | 'planejamento'>('analise')
   const [erro, setErro] = useState<string | null>(null)
-
-  // Estado de salvar / criar Notion
   const [salvando, setSalvando] = useState(false)
-  const [criandoNotion, setCriandoNotion] = useState(false)
+  const [planoSalvoId, setPlanoSalvoId] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<string | null>(null)
-  const [notionUrl, setNotionUrl] = useState<string | null>(null)
 
-  // ── Handler BuscaAluno ────────────────────────────────────────────────────
+  // Edição manual inline
+  const [editMode, setEditMode] = useState(false)
+  const [textoEdit, setTextoEdit] = useState('')
+  const [salvandoEdit, setSalvandoEdit] = useState(false)
+
+  // ── Handlers ────────────────────────────────────────────────────────────
 
   function handleSelecionarAluno(aluno: Record<string, string>) {
     setAlunoSelecionado(aluno)
     setNomeAluno(aluno['Nome completo'] ?? '')
     setContextoAluno(buildAlunoContext(aluno))
-    setPainelAberto(true)
+    setInstagramAluno(extrairInstagram(aluno))
+    setPainelDadosAberto(true)
   }
-
-  // ── Handler PDA21 ──────────────────────────────────────────────────────────
 
   function handlePda21Change(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -191,33 +218,31 @@ export default function NovoPlanoPage() {
     setNomePda21('')
   }
 
-  // ── Handler principal ──────────────────────────────────────────────────────
-
+  // Geração unificada — uma única chamada à IA com marcador ===INSTAGRAM===
   async function handleGerar() {
     if (!nomeAluno.trim() || !tutora.trim()) {
       setErro('Preencha o nome do aluno e a tutora antes de gerar o plano.')
       return
     }
 
-    setGerando(true)
-    setErro(null)
-    setPlanoGerado(null)
-    setMensagem(null)
-    setNotionUrl(null)
-
-    // Monta o contexto: dados da planilha + contexto adicional
-    let contexto = contextoAluno ? contextoAluno + '\n\n' : ''
-
     if (!textoBruto.trim() && !contextoAluno) {
-      setErro('Selecione um aluno da planilha ou cole algum contexto antes de gerar.')
-      setGerando(false)
+      setErro('Selecione um aluno da planilha ou adicione algum contexto antes de gerar.')
       return
     }
 
+    setGerando(true)
+    setErro(null)
+    setPlanoGerado(null)
+    setAnaliseIGGerada(null)
+    setPlanoSalvoId(null)
+    setMensagem(null)
+
+    let contexto = contextoAluno ? contextoAluno + '\n\n' : ''
     if (textoBruto.trim()) {
       contexto += `INFORMAÇÕES ADICIONAIS:\n${textoBruto}`
     }
 
+    const temImagensIG = blocoIG.imagens.length > 0
     try {
       const res = await fetch('/api/gerar-plano', {
         method: 'POST',
@@ -227,6 +252,17 @@ export default function NovoPlanoPage() {
           tutora,
           contexto,
           ...(pda21Base64 && { pda21: pda21Base64 }),
+          ...(temImagensIG && {
+            imagens: blocoIG.imagens.map((img) => ({
+              data: img.base64,
+              mediaType: img.mediaType,
+            })),
+          }),
+          instagramTipo: blocoIG.tipo,
+          instagramAluno,
+          ...(blocoIG.contextoIG.trim() && {
+            instagramContexto: blocoIG.contextoIG.trim(),
+          }),
         }),
       })
 
@@ -236,7 +272,16 @@ export default function NovoPlanoPage() {
       }
 
       const { plano } = await res.json()
-      setPlanoGerado(plano)
+
+      // Divide a resposta pelo marcador ===INSTAGRAM===
+      const MARCADOR = /\n?\s*={3,}\s*INSTAGRAM\s*={3,}\s*\n?/i
+      const partes = (plano as string).split(MARCADOR)
+      const planoConteudo = partes[0].trim()
+      const analiseIG = partes.length > 1 ? partes.slice(1).join('\n').trim() : ''
+
+      setPlanoGerado(planoConteudo)
+      setTipoIGGerado(blocoIG.tipo)
+      setAnaliseIGGerada(analiseIG || null)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao gerar o plano. Tente novamente.')
     } finally {
@@ -244,307 +289,471 @@ export default function NovoPlanoPage() {
     }
   }
 
-  async function handleSalvar() {
-    if (!planoGerado) return
+  // ── Helpers para a barra de ações ──────────────────────────────────────
+
+  /** Garante que o plano + análise IG estão salvos. Retorna o id do plano. */
+  async function garantirSalvo(): Promise<string | null> {
+    if (planoSalvoId) return planoSalvoId
+    if (!planoGerado) return null
+
     setSalvando(true)
     setMensagem(null)
     setErro(null)
-
-    const supabase = createClient()
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    const { error } = await supabase.from('planos').insert({
-      nome_aluno: nomeAluno,
-      tutora,
-      conteudo: planoGerado,
-      criado_por: user?.id,
-    })
-
-    if (error) {
-      setErro('Erro ao salvar o plano: ' + error.message)
-    } else {
-      setMensagem('Plano salvo com sucesso no Supabase!')
-    }
-    setSalvando(false)
-  }
-
-  async function handleCriarNotion() {
-    if (!planoGerado) return
-    setCriandoNotion(true)
-    setMensagem(null)
-    setErro(null)
-
     try {
-      const res = await fetch('/api/criar-notion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nomeAluno, tutora, conteudo: planoGerado }),
-      })
+      const supabase = createClient()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.error || `Erro ${res.status}`)
+      const { data: planoData, error: errPlano } = await supabase
+        .from('planos')
+        .insert({
+          nome_aluno: nomeAluno,
+          tutora,
+          conteudo: planoGerado,
+          criado_por: user?.id ?? null,
+        })
+        .select('id')
+        .single()
+
+      if (errPlano || !planoData) {
+        throw new Error(errPlano?.message ?? 'Erro ao salvar o plano')
       }
 
-      const { url } = await res.json()
-      setNotionUrl(url)
-      setMensagem('Página criada no Notion!')
+      const id = planoData.id as string
+      setPlanoSalvoId(id)
+
+      if (analiseIGGerada) {
+        const { error: errIG } = await supabase
+          .from('analises_instagram')
+          .insert({
+            nome_aluno: nomeAluno || null,
+            conteudo: analiseIGGerada,
+            tipo: tipoIGGerado,
+            plano_id: id,
+            tutora: tutora || null,
+            criado_por: user?.id ?? null,
+          })
+        if (errIG) {
+          setErro(
+            'Plano salvo, mas a análise de Instagram falhou: ' + errIG.message,
+          )
+        }
+      }
+
+      setMensagem('Plano salvo com sucesso!')
+      return id
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao criar no Notion.')
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar o plano.')
+      return null
     } finally {
-      setCriandoNotion(false)
+      setSalvando(false)
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  function handleAbrirEdit() {
+    setTextoEdit(planoGerado ?? '')
+    setEditMode(true)
+  }
+
+  function handleCancelarEdit() {
+    setEditMode(false)
+  }
+
+  async function handleSalvarEdit() {
+    setSalvandoEdit(true)
+    setErro(null)
+    try {
+      // Atualiza estado local
+      setPlanoGerado(textoEdit)
+
+      // Se o plano já estava salvo, persiste o update
+      if (planoSalvoId) {
+        const supabase = createClient()
+        const { error } = await supabase
+          .from('planos')
+          .update({ conteudo: textoEdit })
+          .eq('id', planoSalvoId)
+        if (error) throw new Error(error.message)
+      }
+
+      setEditMode(false)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar edição.')
+    } finally {
+      setSalvandoEdit(false)
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────
+
+  const inputCls =
+    'w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition'
+
+  const cardCls = 'bg-white rounded-2xl border border-creme/70 shadow-sm p-7 sm:p-8'
+
+  const tituloBlocoCls = 'font-playfair text-xl text-petroleo font-semibold'
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Título */}
-      <div className="mb-8">
-        <h1 className="font-playfair text-3xl text-petroleo font-semibold">
-          Novo Plano de Ação
-        </h1>
-        <p className="text-petroleo/60 text-sm mt-1">
-          Gere um plano personalizado para o aluno da Mentoria Primus
-        </p>
-      </div>
+    <div className="bg-offwhite min-h-screen">
+      <style>{`
+        @page { margin: 1.5cm; size: A4; }
+        @media print {
+          @page { margin: 1.5cm; size: A4; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body * { visibility: hidden; }
+          #novo-plano-print-area, #novo-plano-print-area * { visibility: visible; }
+          #novo-plano-print-area { position: absolute; inset: 0; padding: 0; background: white; }
+          .no-print { display: none !important; }
+          h1, h2, h3 { font-family: 'Poppins', sans-serif; page-break-after: avoid; break-after: avoid; }
+          p, table { page-break-inside: avoid; break-inside: avoid; }
+          table th, table td { border: 1px solid #ccc !important; }
+        }
+      `}</style>
+      <div className="max-w-[900px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* Cabeçalho */}
+        <header className="mb-10">
+          <h1 className="font-playfair text-3xl text-petroleo font-semibold">
+            Novo Plano de Ação
+          </h1>
+          <p className="text-petroleo/60 text-sm mt-1.5">
+            Gere um plano completo do aluno + análise de Instagram em uma única etapa.
+          </p>
+        </header>
 
-      {/* Campos comuns */}
-      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
-        <h2 className="font-playfair text-lg text-petroleo font-semibold mb-4">
-          Identificação
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-petroleo mb-1.5">
-              Nome do Aluno *
-            </label>
-            <BuscaAluno
-              onSelect={handleSelecionarAluno}
-              placeholder="Buscar aluno pelo nome..."
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-petroleo mb-1.5">
-              Tutora *
-            </label>
-            <select
-              value={tutora}
-              onChange={(e) => setTutora(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-creme-dark bg-offwhite text-petroleo focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition"
-            >
-              <option value="">Selecione a tutora</option>
-              {tutoras.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Painel "Dados do Aluno" — exibido após seleção na planilha */}
-      {alunoSelecionado && (
-        <div className="bg-white rounded-2xl shadow-sm border border-creme mb-6 overflow-hidden">
-          {/* Cabeçalho colapsável */}
-          <button
-            onClick={() => setPainelAberto((v) => !v)}
-            className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-offwhite/50 transition-colors"
-          >
-            <span className="font-playfair text-lg text-petroleo font-semibold">
-              Dados do aluno
-            </span>
-            <span className="text-petroleo/50 text-sm">
-              {painelAberto ? '▲ Recolher' : '▼ Expandir'}
-            </span>
-          </button>
-
-          {painelAberto && (
-            <div className="px-6 pb-6">
-              {/* Abas */}
-              <div className="flex gap-1 mb-5 bg-offwhite p-1 rounded-xl">
-                {TABS_LABELS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setAbaAluno(key)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      abaAluno === key
-                        ? 'bg-petroleo text-creme'
-                        : 'text-petroleo/60 hover:text-petroleo'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+        <div className="space-y-7">
+          {/* ─────── Bloco 1 — Identificação ─────── */}
+          <section className={cardCls}>
+            <h2 className={`${tituloBlocoCls} mb-5`}>Identificação</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label className="block text-sm font-medium text-petroleo mb-1.5">
+                  Aluno *
+                </label>
+                <BuscaAluno
+                  onSelect={handleSelecionarAluno}
+                  placeholder="Buscar aluno pelo nome..."
+                />
               </div>
-
-              {/* Campos */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-                {TABS_DADOS[abaAluno].map(({ label, key }) => {
-                  const valor = alunoSelecionado[key]?.trim() ||
-                    Object.entries(alunoSelecionado).find(([k]) =>
-                      k.startsWith(key.slice(0, 20))
-                    )?.[1]?.trim() ||
-                    ''
-                  return (
-                    <div key={key} className="border-b border-creme/60 pb-2 last:border-0">
-                      <p className="text-xs font-medium text-petroleo/60 mb-0.5">{label}</p>
-                      <p className={`text-sm ${valor ? 'text-petroleo' : 'text-petroleo/30 italic'}`}>
-                        {valor || 'Não informado'}
-                      </p>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Botão secundário — só aparece após selecionar aluno da planilha */}
-      {alunoSelecionado && (
-        <button
-          onClick={handleGerar}
-          disabled={gerando}
-          className="w-full mb-6 py-3 px-6 rounded-xl font-medium text-sm border-2 border-petroleo text-petroleo hover:bg-petroleo hover:text-creme disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-        >
-          {gerando ? '✨ Gerando plano...' : '✨ Gerar plano com dados da planilha'}
-        </button>
-      )}
-
-      {/* Contexto adicional */}
-      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
-        <label className="block text-sm font-medium text-petroleo mb-1">
-          Contexto adicional
-          {alunoSelecionado && (
-            <span className="text-petroleo/40 font-normal ml-1">(opcional)</span>
-          )}
-        </label>
-        <p className="text-xs text-petroleo/50 mb-3">
-          Informações extras sobre o aluno — anotações, observações da tutora, etc.
-        </p>
-        <textarea
-          value={textoBruto}
-          onChange={(e) => setTextoBruto(e.target.value)}
-          rows={8}
-          placeholder="Cole aqui anotações, observações extras ou qualquer contexto adicional sobre o aluno..."
-          className="w-full px-4 py-3 rounded-xl border border-creme-dark bg-offwhite text-petroleo placeholder-petroleo/40 focus:outline-none focus:ring-2 focus:ring-petroleo/30 focus:border-petroleo transition resize-none text-sm leading-relaxed"
-        />
-      </div>
-
-      {/* PDA21 — opcional */}
-      <div className="bg-white rounded-2xl shadow-sm border border-creme p-6 mb-6">
-        <h2 className="font-playfair text-lg text-petroleo font-semibold mb-1">
-          Plano de Ataque (PDA21){' '}
-          <span className="text-petroleo/40 font-normal text-sm">(opcional)</span>
-        </h2>
-        <p className="text-petroleo/50 text-xs mb-4">
-          Envie o PDF do PDA21 preenchido pelo aluno para enriquecer o plano de ação
-        </p>
-
-        <input
-          ref={inputRefPda21}
-          type="file"
-          accept="application/pdf"
-          onChange={handlePda21Change}
-          className="hidden"
-        />
-
-        {pda21Base64 ? (
-          <div className="flex items-center gap-3 p-3 bg-offwhite rounded-xl border border-creme-dark">
-            <span className="text-xl">📄</span>
-            <span className="flex-1 text-sm text-petroleo truncate">{nomePda21}</span>
-            <button
-              onClick={removerPda21}
-              className="text-petroleo/40 hover:text-petroleo text-sm transition-colors"
-            >
-              Remover
-            </button>
-          </div>
-        ) : (
-          <div
-            onClick={() => inputRefPda21.current?.click()}
-            className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer border-creme-dark hover:border-petroleo/40 hover:bg-offwhite transition-colors"
-          >
-            <p className="text-2xl mb-1">📄</p>
-            <p className="text-sm font-medium text-petroleo">Clique para selecionar o PDF</p>
-            <p className="text-xs text-petroleo/40 mt-0.5">Apenas arquivos PDF</p>
-          </div>
-        )}
-      </div>
-
-      {/* Feedback de erro */}
-      {erro && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">
-          {erro}
-        </div>
-      )}
-
-      {/* Botão gerar */}
-      <button
-        onClick={handleGerar}
-        disabled={gerando}
-        className="w-full bg-petroleo text-creme py-3.5 px-6 rounded-xl font-semibold text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors mb-8"
-      >
-        {gerando ? '✨ Gerando plano...' : '✨ Gerar Plano de Ação'}
-      </button>
-
-      {/* Plano gerado */}
-      {planoGerado && (
-        <div className="bg-white rounded-2xl shadow-sm border border-creme p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-playfair text-xl text-petroleo font-semibold">
-              Plano Gerado
-            </h2>
-            <button
-              onClick={() => navigator.clipboard.writeText(planoGerado)}
-              className="text-petroleo/60 text-sm hover:text-petroleo transition-colors px-3 py-1.5 rounded-lg border border-creme-dark hover:border-petroleo/30"
-            >
-              Copiar
-            </button>
-          </div>
-
-          <div className="border border-offwhite bg-offwhite rounded-xl p-5 max-h-[600px] overflow-y-auto">
-            <PlanoMarkdown conteudo={planoGerado} />
-          </div>
-
-          {mensagem && (
-            <div className="mt-4 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl">
-              {mensagem}
-              {notionUrl && (
-                <a
-                  href={notionUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 underline hover:no-underline"
+              <div>
+                <label className="block text-sm font-medium text-petroleo mb-1.5">
+                  Tutora *
+                </label>
+                <select
+                  value={tutora}
+                  onChange={(e) => setTutora(e.target.value)}
+                  className={inputCls}
                 >
-                  Abrir no Notion →
-                </a>
-              )}
+                  <option value="">Selecione a tutora</option>
+                  {tutoras.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
             </div>
+          </section>
+
+          {/* ─────── Bloco 2 — Dados do aluno (após seleção) ─────── */}
+          {alunoSelecionado && (
+            <section className="bg-white rounded-2xl border border-creme/70 shadow-sm overflow-hidden">
+              <button
+                onClick={() => setPainelDadosAberto((v) => !v)}
+                className="w-full flex items-center justify-between px-7 sm:px-8 py-5 text-left hover:bg-offwhite/60 transition-colors"
+              >
+                <span className={tituloBlocoCls}>Dados do aluno</span>
+                <span className="text-petroleo/50 text-sm">
+                  {painelDadosAberto ? '▲ Recolher' : '▼ Expandir'}
+                </span>
+              </button>
+
+              {painelDadosAberto && (
+                <div className="px-7 sm:px-8 pb-7">
+                  {/* Abas */}
+                  <div className="flex gap-1 mb-5 bg-offwhite p-1 rounded-xl">
+                    {TABS_LABELS.map(({ key, label }) => (
+                      <button
+                        key={key}
+                        onClick={() => setAbaAluno(key)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          abaAluno === key
+                            ? 'bg-petroleo text-creme'
+                            : 'text-petroleo/60 hover:text-petroleo'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Campos */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                    {TABS_DADOS[abaAluno].map(({ label, key }) => {
+                      const valor = alunoSelecionado[key]?.trim() ||
+                        Object.entries(alunoSelecionado).find(([k]) =>
+                          k.startsWith(key.slice(0, 20))
+                        )?.[1]?.trim() ||
+                        ''
+                      return (
+                        <div key={key} className="border-b border-creme/60 pb-2 last:border-0">
+                          <p className="text-xs font-medium text-petroleo/60 mb-0.5">{label}</p>
+                          <p className={`text-sm ${valor ? 'text-petroleo' : 'text-petroleo/30 italic'}`}>
+                            {valor || 'Não informado'}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </section>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-3 mt-5">
+          {/* ─────── Bloco 3 — Contexto adicional (colapsável, fechado por padrão) ─────── */}
+          <section className="bg-white rounded-2xl border border-creme/70 shadow-sm overflow-hidden">
             <button
-              onClick={handleSalvar}
-              disabled={salvando}
-              className="flex-1 bg-petroleo text-creme py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              onClick={() => setContextoAberto((v) => !v)}
+              className="w-full flex items-center justify-between px-7 sm:px-8 py-5 text-left hover:bg-offwhite/60 transition-colors"
             >
-              {salvando ? 'Salvando...' : '💾 Salvar no Supabase'}
+              <div>
+                <span className={tituloBlocoCls}>Contexto adicional</span>
+                <p className="text-xs text-petroleo/50 mt-0.5 font-normal">
+                  Observações da tutora e PDA21 (opcional)
+                </p>
+              </div>
+              <span className="text-petroleo/50 text-sm shrink-0 ml-4">
+                {contextoAberto ? '▲ Recolher' : '▼ Expandir'}
+              </span>
             </button>
+
+            {contextoAberto && (
+              <div className="px-7 sm:px-8 pb-7 space-y-6">
+                {/* Textarea */}
+                <div>
+                  <label className="block text-sm font-medium text-petroleo mb-1.5">
+                    Observações
+                  </label>
+                  <p className="text-xs text-petroleo/50 mb-2">
+                    Informações extras sobre o aluno — anotações, observações da tutora, etc.
+                  </p>
+                  <textarea
+                    value={textoBruto}
+                    onChange={(e) => setTextoBruto(e.target.value)}
+                    rows={6}
+                    placeholder="Cole aqui anotações, observações extras ou qualquer contexto adicional sobre o aluno..."
+                    className={`${inputCls} resize-none text-sm leading-relaxed`}
+                  />
+                </div>
+
+                {/* Upload PDA21 */}
+                <div>
+                  <label className="block text-sm font-medium text-petroleo mb-1.5">
+                    Plano de Ataque (PDA21){' '}
+                    <span className="text-petroleo/40 font-normal text-xs">(opcional)</span>
+                  </label>
+                  <p className="text-xs text-petroleo/50 mb-3">
+                    Envie o PDF do PDA21 preenchido pelo aluno para enriquecer o plano.
+                  </p>
+
+                  <input
+                    ref={inputRefPda21}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handlePda21Change}
+                    className="hidden"
+                  />
+
+                  {pda21Base64 ? (
+                    <div className="flex items-center gap-3 p-3 bg-offwhite rounded-xl border border-creme-dark">
+                      <span className="text-xl">📄</span>
+                      <span className="flex-1 text-sm text-petroleo truncate">{nomePda21}</span>
+                      <button
+                        onClick={removerPda21}
+                        className="text-petroleo/40 hover:text-petroleo text-sm transition-colors"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => inputRefPda21.current?.click()}
+                      className="border-2 border-dashed rounded-xl p-7 text-center cursor-pointer border-creme-dark hover:border-petroleo/40 hover:bg-offwhite transition-colors"
+                    >
+                      <p className="text-2xl mb-1">📄</p>
+                      <p className="text-sm font-medium text-petroleo">Clique para selecionar o PDF</p>
+                      <p className="text-xs text-petroleo/40 mt-0.5">Apenas arquivos PDF</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* ─────── Bloco 4 — Instagram ─────── */}
+          <BlocoInstagram
+            instagramAluno={instagramAluno}
+            onInstagramAlunoChange={setInstagramAluno}
+            onChange={setBlocoIG}
+          />
+
+          {/* ─────── Bloco 5 — Botão principal ─────── */}
+          <div>
+            {erro && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl mb-4">
+                {erro}
+              </div>
+            )}
             <button
-              onClick={handleCriarNotion}
-              disabled={criandoNotion}
-              className="flex-1 bg-creme text-petroleo border border-creme-dark py-2.5 px-5 rounded-xl font-medium text-sm hover:bg-creme-dark disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              onClick={handleGerar}
+              disabled={gerando}
+              className="w-full bg-petroleo text-creme py-4 px-6 rounded-xl font-semibold text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              style={{ backgroundColor: gerando ? undefined : '#05343d' }}
             >
-              {criandoNotion ? 'Criando...' : '📝 Criar no Notion'}
+              {gerando ? 'Gerando...' : 'Gerar Plano Completo'}
             </button>
           </div>
+
+          {/* ─────── Bloco 6 — Resultado ─────── */}
+          {!planoGerado ? (
+            <section className={cardCls}>
+              <div className="py-16 text-center">
+                <p className="text-petroleo/50 text-sm">
+                  Preencha as informações acima e clique em{' '}
+                  <span className="font-medium text-petroleo/70">Gerar Plano Completo</span>
+                </p>
+              </div>
+            </section>
+          ) : (
+            <section
+              id="novo-plano-resultado"
+              className="bg-white rounded-2xl border border-creme/70 shadow-sm overflow-hidden"
+            >
+              {/* Barra de ações sticky */}
+              <div className="no-print sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-creme px-5 sm:px-6 py-3 flex flex-wrap gap-2 items-center">
+                <CopiarBotao
+                  conteudo={planoGerado}
+                  createdAt={new Date().toISOString()}
+                  hasAnalise={!!analiseIGGerada}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-petroleo text-creme text-sm font-medium hover:bg-petroleo-light transition-colors"
+                />
+
+                <BaixarPdfBotao
+                  nomeAluno={nomeAluno}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
+                />
+
+                <GerarApresentacaoBotao
+                  nomeAluno={nomeAluno}
+                  tutora={tutora}
+                  conteudo={planoGerado}
+                  createdAt={new Date().toISOString()}
+                  analiseIG={analiseIGGerada}
+                  tipoIG={analiseIGGerada ? tipoIGGerado : null}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
+                />
+
+                <button
+                  onClick={editMode ? handleCancelarEdit : handleAbrirEdit}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite transition-colors"
+                >
+                  {editMode ? '✕ Cancelar' : '✏️ Editar Manualmente'}
+                </button>
+
+                <EditarComIABotao
+                  planoId={planoSalvoId}
+                  nomeAluno={nomeAluno}
+                  tutora={tutora}
+                  conteudo={planoGerado}
+                  onUpdate={(novo) => setPlanoGerado(novo)}
+                  onSalvarSolicitado={garantirSalvo}
+                  className="flex items-center justify-center"
+                />
+
+                <CopiarLinkPublicoBotao
+                  planoId={planoSalvoId}
+                  onSalvarSolicitado={garantirSalvo}
+                  className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-creme-dark text-petroleo text-sm font-medium hover:bg-offwhite disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                />
+
+                <div className="ml-auto">
+                  <button
+                    onClick={async () => { await garantirSalvo() }}
+                    disabled={salvando || !!planoSalvoId}
+                    className="bg-petroleo text-creme py-2 px-5 rounded-xl font-medium text-sm hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {salvando
+                      ? 'Salvando...'
+                      : planoSalvoId
+                        ? '✓ Plano salvo'
+                        : analiseIGGerada
+                          ? 'Salvar Plano + Análise'
+                          : 'Salvar Plano'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Conteúdo do documento */}
+              <div id="novo-plano-print-area" className="p-7 sm:p-8">
+                {editMode ? (
+                  <div>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xs font-medium text-petroleo/50 mr-auto">
+                        Modo de edição — Markdown
+                      </span>
+                      <button
+                        onClick={handleCancelarEdit}
+                        className="px-4 py-2 rounded-xl border border-creme-dark text-petroleo/70 text-sm hover:bg-offwhite transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={handleSalvarEdit}
+                        disabled={salvandoEdit}
+                        className="px-5 py-2 rounded-xl bg-petroleo text-creme text-sm font-medium hover:bg-petroleo-light disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {salvandoEdit ? 'Salvando...' : '💾 Salvar edição'}
+                      </button>
+                    </div>
+                    <textarea
+                      value={textoEdit}
+                      onChange={(e) => setTextoEdit(e.target.value)}
+                      style={{ fontFamily: 'monospace', minHeight: 600 }}
+                      className="w-full px-4 py-3 rounded-xl border border-creme-dark bg-offwhite text-petroleo text-sm leading-relaxed focus:outline-none resize-y"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* 1. Plano de ação */}
+                    <PlanoMarkdown conteudo={planoGerado} />
+
+                    {/* 2. Separador + 3. Análise/Planejamento de Instagram */}
+                    {analiseIGGerada && (
+                      <>
+                        <div className="my-8 pt-6 border-t-2 border-creme-dark">
+                          <p className="text-xs uppercase tracking-wider text-petroleo/50 font-medium mb-1">
+                            Seção complementar
+                          </p>
+                          <h3 className="font-playfair text-2xl text-petroleo font-semibold">
+                            {tipoIGGerado === 'planejamento'
+                              ? 'Planejamento Estratégico de Instagram'
+                              : 'Análise Estratégica de Instagram'}
+                          </h3>
+                        </div>
+                        <PlanoMarkdown conteudo={analiseIGGerada} />
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {mensagem && (
+                  <div className="no-print mt-6 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3 rounded-xl">
+                    {mensagem}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
-

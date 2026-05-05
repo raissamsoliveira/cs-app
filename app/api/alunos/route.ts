@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     return Response.json({ alunos })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro interno'
+    console.error('[api/alunos] falha:', message, err)
     return Response.json({ error: message }, { status: 500 })
   }
 }

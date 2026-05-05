@@ -16,7 +16,7 @@ export default function BuscaAluno({
 }: Props) {
   const [query, setQuery] = useState(valorInicial)
   const [aberto, setAberto] = useState(false)
-  const { alunos, loading } = useAlunos(query)
+  const { alunos, loading, error } = useAlunos(query)
 
   /** Retorna o valor do campo instagram/linkedin (busca por prefixo para robustez) */
   function getIg(aluno: Record<string, string>): string {
@@ -53,6 +53,10 @@ export default function BuscaAluno({
         <ul className="absolute z-20 mt-1 w-full bg-white border border-creme-dark rounded-xl shadow-lg overflow-hidden">
           {loading ? (
             <li className="px-4 py-3 text-sm text-petroleo/50">Buscando...</li>
+          ) : error ? (
+            <li className="px-4 py-3 text-sm text-red-600">
+              Erro ao consultar a planilha: {error}
+            </li>
           ) : alunos.length === 0 ? (
             <li className="px-4 py-3 text-sm text-petroleo/50">
               Aluno não encontrado na planilha
