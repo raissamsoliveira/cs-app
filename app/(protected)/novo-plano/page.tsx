@@ -352,7 +352,13 @@ export default function NovoPlanoPage() {
   }
 
   function handleAbrirEdit() {
-    setTextoEdit(planoGerado ?? '')
+    const base = planoGerado ?? ''
+    const ig = analiseIGGerada ? `
+
+===INSTAGRAM===
+
+${analiseIGGerada}` : ''
+    setTextoEdit(base + ig)
     setEditMode(true)
   }
 
@@ -364,17 +370,51 @@ export default function NovoPlanoPage() {
     setSalvandoEdit(true)
     setErro(null)
     try {
-      // Atualiza estado local
-      setPlanoGerado(textoEdit)
+      // Re-separa pelo marcador ===INSTAGRAM===
+      const MARCADOR = /\n?\s*={3,}\s*INSTAGRAM\s*={3,}\s*\n?/i
+      const partes = textoEdit.split(MARCADOR)
+      const novoPlano = partes[0].trim()
+      const novaIG = partes.length > 1 ? partes.slice(1).join('\n').trim() : null
 
-      // Se o plano já estava salvo, persiste o update
+      // Atualiza estado local
+      setPlanoGerado(novoPlano)
+      setAnaliseIGGerada(novaIG)
+
+      // Se o plano já estava salvo, persiste os updates no banco
       if (planoSalvoId) {
         const supabase = createClient()
-        const { error } = await supabase
+
+        const { error: errPlano } = await supabase
           .from('planos')
-          .update({ conteudo: textoEdit })
+          .update({ conteudo: novoPlano })
           .eq('id', planoSalvoId)
-        if (error) throw new Error(error.message)
+        if (errPlano) throw new Error(errPlano.message)
+
+        if (novaIG !== null) {
+          // Atualiza ou insere a análise de IG vinculada
+          const { data: igExistente } = await supabase
+            .from('analises_instagram')
+            .select('id')
+            .eq('plano_id', planoSalvoId)
+            .maybeSingle()
+
+          if (igExistente) {
+            await supabase
+              .from('analises_instagram')
+              .update({ conteudo: novaIG })
+              .eq('id', igExistente.id)
+          } else {
+            const { data: { user } } = await supabase.auth.getUser()
+            await supabase.from('analises_instagram').insert({
+              nome_aluno: nomeAluno || null,
+              conteudo: novaIG,
+              tipo: tipoIGGerado,
+              plano_id: planoSalvoId,
+              tutora: tutora || null,
+              criado_por: user?.id ?? null,
+            })
+          }
+        }
       }
 
       setEditMode(false)
@@ -696,9 +736,16 @@ export default function NovoPlanoPage() {
                 {editMode ? (
                   <div>
                     <div className="flex items-center gap-3 mb-3">
-                      <span className="text-xs font-medium text-petroleo/50 mr-auto">
-                        Modo de edição — Markdown
-                      </span>
+                      <div className="mr-auto">
+                        <span className="text-xs font-medium text-petroleo/50">
+                          Modo de edição — Markdown
+                        </span>
+                        {analiseIGGerada && (
+                          <span className="block text-xs text-petroleo/40 mt-0.5">
+                            Use <code className="bg-creme px-1 rounded">===INSTAGRAM===</code> para separar o plano da análise de Instagram
+                          </span>
+                        )}
+                      </div>
                       <button
                         onClick={handleCancelarEdit}
                         className="px-4 py-2 rounded-xl border border-creme-dark text-petroleo/70 text-sm hover:bg-offwhite transition-colors"

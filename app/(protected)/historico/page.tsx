@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import HistoricoClientArea, { type ItemHistorico } from './HistoricoClientArea'
 
+export const dynamic = 'force-dynamic'
+
 export default async function HistoricoPage() {
   const supabase = await createClient()
 
@@ -14,6 +16,7 @@ export default async function HistoricoPage() {
     supabase
       .from('analises_instagram')
       .select('id, created_at, nome_aluno, conteudo, tutora, tipo')
+      .is('plano_id', null)
       .order('created_at', { ascending: false }),
     supabase.from('planos').select('tutora').order('tutora'),
   ])
