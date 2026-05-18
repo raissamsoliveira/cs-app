@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 
-const SHEET_URL = `https://docs.google.com/spreadsheets/d/${process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv`
+const SHEET_BASE_URL = `https://docs.google.com/spreadsheets/d/${process.env.NEXT_PUBLIC_GOOGLE_SHEET_ID}/gviz/tq?tqx=out:csv`
+const ABAS = ['Novos', 'Antigas']
 
 /** Parser RFC 4180 — suporta campos com vírgulas, aspas e quebras de linha */
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
@@ -66,38 +67,46 @@ function detectarIndiceNome(headers: string[]): number {
   return Math.min(1, headers.length - 1)
 }
 
-/** Busca e parseia todos os alunos da planilha — cacheado por 5 minutos */
+/** Busca e parseia os alunos de uma aba específica da planilha */
+async function getAlunosDaAba(aba: string): Promise<Record<string, string>[]> {
+  const url = `${SHEET_BASE_URL}&sheet=${encodeURIComponent(aba)}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    console.warn(`[planilha] Erro ao buscar aba "${aba}": ${res.status}`)
+    return []
+  }
+  const text = await res.text()
+  const { headers, rows } = parseCSV(text)
+  if (rows.length === 0) return []
+
+  const idxNome = detectarIndiceNome(headers)
+  const cabecalhoOriginalNome = headers[idxNome]
+
+  if (cabecalhoOriginalNome !== 'Nome completo') {
+    console.warn(
+      `[planilha] Aba "${aba}": coluna "${cabecalhoOriginalNome}" (índice ${idxNome}) será tratada como "Nome completo". ` +
+      `Para corrigir, ajuste o cabeçalho da planilha para "Nome completo".`,
+    )
+  }
+
+  return rows.map((row) => {
+    const obj: Record<string, string> = {}
+    headers.forEach((h, i) => {
+      obj[h] = (row[i] ?? '').trim()
+    })
+    // Garante que a chave "Nome completo" exista, mesmo que o cabeçalho original seja outro.
+    if (!obj['Nome completo']) {
+      obj['Nome completo'] = (row[idxNome] ?? '').trim()
+    }
+    return obj
+  })
+}
+
+/** Busca e parseia todos os alunos das abas "Novos" e "Antigas" — cacheado por 5 minutos */
 export const getAllAlunos = unstable_cache(
   async (): Promise<Record<string, string>[]> => {
-    const res = await fetch(SHEET_URL)
-    if (!res.ok) {
-      throw new Error(`Erro ao buscar planilha: ${res.status}`)
-    }
-    const text = await res.text()
-    const { headers, rows } = parseCSV(text)
-    if (rows.length === 0) return []
-
-    const idxNome = detectarIndiceNome(headers)
-    const cabecalhoOriginalNome = headers[idxNome]
-
-    if (cabecalhoOriginalNome !== 'Nome completo') {
-      console.warn(
-        `[planilha] Coluna "${cabecalhoOriginalNome}" (índice ${idxNome}) será tratada como "Nome completo". ` +
-        `Para corrigir, ajuste o cabeçalho da planilha para "Nome completo".`,
-      )
-    }
-
-    return rows.map((row) => {
-      const obj: Record<string, string> = {}
-      headers.forEach((h, i) => {
-        obj[h] = (row[i] ?? '').trim()
-      })
-      // Garante que a chave "Nome completo" exista, mesmo que o cabeçalho original seja outro.
-      if (!obj['Nome completo']) {
-        obj['Nome completo'] = (row[idxNome] ?? '').trim()
-      }
-      return obj
-    })
+    const resultados = await Promise.all(ABAS.map(getAlunosDaAba))
+    return resultados.flat()
   },
   ['alunos-planilha'],
   { revalidate: 300 }
