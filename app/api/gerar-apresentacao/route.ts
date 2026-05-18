@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const nomeFormatado = nomeAluno?.trim().toUpperCase() ?? '[NOME DO ALUNO]'
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 2048,
       messages: [
         {

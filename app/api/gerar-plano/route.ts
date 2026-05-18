@@ -176,7 +176,7 @@ Gere o plano completo seguindo rigorosamente a estrutura e regras definidas.${
         : textoUsuario
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: temIG ? 8192 : 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: messageContent }],

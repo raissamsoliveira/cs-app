@@ -70,7 +70,7 @@ ${corpus}
 Retorne APENAS o JSON no formato especificado, sem markdown.`
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 2048,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],

@@ -54,7 +54,7 @@ ${novasInformacoes}
 Atualize e melhore o plano incorporando essas informações. Mantenha rigorosamente a mesma estrutura e padrão. Retorne o plano completo atualizado.`
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],

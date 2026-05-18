@@ -212,7 +212,7 @@ export async function POST(request: Request) {
     }
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5',
       max_tokens: 4096,
       system: isPlanejamento ? SYSTEM_PROMPT_PLANEJAMENTO : SYSTEM_PROMPT,
       messages: [
